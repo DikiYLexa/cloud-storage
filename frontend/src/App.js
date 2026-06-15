@@ -23,11 +23,6 @@ function App() {
     const [showWelcome, setShowWelcome] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
-    const [showAdminPanel, setShowAdminPanel] = useState(false);
-    const [adminUsers, setAdminUsers] = useState([]);
-    const [adminStats, setAdminStats] = useState(null);
-    const [loadingAdmin, setLoadingAdmin] = useState(false);
-    const [messageType, setMessageType] = useState('');
     const [selectedFiles, setSelectedFiles] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
     const [userRole, setUserRole] = useState('user');
@@ -46,7 +41,7 @@ function App() {
         }
         const timer = setTimeout(() => setShowWelcome(false), 5000);
         return () => clearTimeout(timer);
-    }, []);
+    }, [loadFiles]);
 
     const toggleMenu = () => {
         setMenuOpen(!menuOpen);
@@ -361,24 +356,7 @@ function App() {
         }
     };
 
-    const handleEmptyTrash = async () => {
-        const token = localStorage.getItem('token');
-        if (window.confirm('Очистить корзину? Все файлы будут удалены навсегда.')) {
-            try {
-                await axios.delete(`${API_URL}/files/trash/empty`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                
-                await loadTrashFiles();
-                await loadFiles(token);
-                setMessage('Корзина очищена');
-                setTimeout(() => setMessage(''), 3000);
-            } catch (error) {
-                console.error('Empty trash error:', error);
-                setMessage('Ошибка при очистке корзины');
-            }
-        }
-    };
+    
 
     const toggleFileSelection = (fileId) => {
         if (selectedFiles.includes(fileId)) {

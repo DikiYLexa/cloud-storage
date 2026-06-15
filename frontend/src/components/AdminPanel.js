@@ -10,7 +10,7 @@ const AdminPanel = ({ token, colors }) => {
 
     useEffect(() => {
         loadAdminData();
-    }, []);
+    }, [loadAdminData]);
 
     const loadAdminData = async () => {
         setLoading(true);
