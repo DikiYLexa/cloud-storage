@@ -1,0 +1,41 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "CloudStorage Backend API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "build": "cd ../frontend && npm install && npm run build && cd ../backend && mkdir -p public && cp -r ../frontend/build/* public/",
+    "postinstall": "echo 'Dependencies installed successfully'"
+  },
+  "keywords": [
+    "cloud",
+    "storage",
+    "express",
+    "mssql"
+  ],
+  "author": "Your Name",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "form-data": "^4.0.5",
+    "iconv-lite": "^0.7.2",
+    "jsonwebtoken": "^9.0.3",
+    "mssql": "^12.5.0",
+    "multer": "^2.1.1",
+    "nodemailer": "^8.0.7",
+    "pompelmi": "^1.20.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
