@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 const API_URL = 'http://localhost:5000/api';
@@ -8,11 +8,8 @@ const AdminPanel = ({ token, colors }) => {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadAdminData();
-    }, [loadAdminData]);
-
-    const loadAdminData = async () => {
+    // Оборачиваем loadAdminData в useCallback
+    const loadAdminData = useCallback(async () => {
         setLoading(true);
         try {
             const [usersRes, statsRes] = await Promise.all([
@@ -30,7 +27,12 @@ const AdminPanel = ({ token, colors }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [token]); // token как зависимость
+
+    // useEffect теперь использует loadAdminData
+    useEffect(() => {
+        loadAdminData();
+    }, [loadAdminData]);
 
     const handleUpdateLimit = async (userId, newLimitMb) => {
         try {
@@ -155,7 +157,7 @@ const AdminPanel = ({ token, colors }) => {
                                         {user.role === 'admin' ? 'Админ' : 'Пользователь'}
                                     </span>
                                 </td>
-                               <td style={{ padding: '10px', fontSize: '11px' }}>
+                                <td style={{ padding: '10px', fontSize: '11px' }}>
                                     {user.last_login && user.last_login !== 'Никогда' ? new Date(user.last_login).toLocaleString('ru-RU') : 'Никогда'}
                                 </td>
                             </tr>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import AdminPanel from './components/AdminPanel';
 
@@ -7,6 +7,7 @@ const API_URL = window.location.hostname === 'localhost'
   : `http://${window.location.hostname}:5000/api`;
 
 function App() {
+    // ========== ВСЕ useState ==========
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [user, setUser] = useState(null);
     const [isLogin, setIsLogin] = useState(true);
@@ -14,6 +15,7 @@ function App() {
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
     const [message, setMessage] = useState('');
+    const [messageType, setMessageType] = useState('');
     const [loading, setLoading] = useState(false);
     const [files, setFiles] = useState([]);
     const [hoveredFile, setHoveredFile] = useState(null);
@@ -33,42 +35,9 @@ function App() {
     const [pendingEmail, setPendingEmail] = useState('');
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
-    useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            checkAuth(token);
-            loadFiles(token);
-        }
-        const timer = setTimeout(() => setShowWelcome(false), 5000);
-        return () => clearTimeout(timer);
-    }, [loadFiles]);
-
-    const toggleMenu = () => {
-        setMenuOpen(!menuOpen);
-    };
-
-    const showToast = (message, type = 'success') => {
-        setToast({ show: true, message, type });
-        setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
-    };
-
-    const checkAuth = async (token) => {
-    try {
-        const res = await axios.get(`${API_URL}/profile`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log('Profile response:', res.data); // ← добавь это
-        console.log('User role:', res.data.role);   // ← добавь это
-        
-        setUser(res.data);
-        setUserRole(res.data.role);
-        setIsLoggedIn(true);
-    } catch (error) {
-        localStorage.removeItem('token');
-    }
-};
-
-    const getFileIcon = (mimeType) => {
+    // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (объявлены ПЕРВЫМИ) ==========
+    
+    const getFileIcon = useCallback((mimeType) => {
         if (mimeType.startsWith('image/')) return '🖼️';
         if (mimeType.startsWith('video/')) return '🎬';
         if (mimeType.startsWith('audio/')) return '🎵';
@@ -77,9 +46,16 @@ function App() {
         if (mimeType.includes('word') || mimeType === 'application/msword') return '📝';
         if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('tar')) return '🗜️';
         return '📁';
-    };
+    }, []);
 
-    const loadFiles = async (token) => {
+    const showToast = useCallback((message, type = 'success') => {
+        setToast({ show: true, message, type });
+        setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
+    }, []);
+
+    // ========== ОСНОВНЫЕ ФУНКЦИИ (объявлены ДО useEffect) ==========
+    
+    const loadFiles = useCallback(async (token) => {
         try {
             const res = await axios.get(`${API_URL}/files`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -100,9 +76,25 @@ function App() {
         } catch (error) {
             console.error('Error loading files:', error);
         }
-    };
+    }, [getFileIcon]);
 
-    const loadTrashFiles = async () => {
+    const checkAuth = useCallback(async (token) => {
+        try {
+            const res = await axios.get(`${API_URL}/profile`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            console.log('Profile response:', res.data);
+            console.log('User role:', res.data.role);
+            
+            setUser(res.data);
+            setUserRole(res.data.role);
+            setIsLoggedIn(true);
+        } catch (error) {
+            localStorage.removeItem('token');
+        }
+    }, []);
+
+    const loadTrashFiles = useCallback(async () => {
         const token = localStorage.getItem('token');
         try {
             const res = await axios.get(`${API_URL}/files/trash`, {
@@ -124,6 +116,24 @@ function App() {
         } catch (error) {
             console.error('Error loading trash:', error);
         }
+    }, [getFileIcon]);
+
+    // ========== useEffect (ПОСЛЕ объявления всех функций) ==========
+    
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            checkAuth(token);
+            loadFiles(token);
+        }
+        const timer = setTimeout(() => setShowWelcome(false), 5000);
+        return () => clearTimeout(timer);
+    }, [checkAuth, loadFiles]);
+
+    // ========== ОСТАЛЬНЫЕ ФУНКЦИИ ==========
+    
+    const toggleMenu = () => {
+        setMenuOpen(!menuOpen);
     };
 
     const handleRegister = async (e) => {
@@ -180,41 +190,41 @@ function App() {
         }
     };
 
-   const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setMessage('');
 
-    try {
-        const res = await axios.post(`${API_URL}/auth/login`, {
-            email,
-            password
-        });
-        
-        console.log('Login response:', res.data);
-        console.log('User role:', res.data.user?.role);
-        
-        localStorage.setItem('token', res.data.token);
-        setUser(res.data.user);
-        setUserRole(res.data.user?.role || 'user'); // ← добавляем роль
-        setIsLoggedIn(true);
-        setMessage('Добро пожаловать!');
-        loadFiles(res.data.token);
-        setShowWelcome(true);
-        setTimeout(() => setShowWelcome(false), 5000);
-    } catch (error) {
-        const errorMsg = error.response?.data?.error || 'Ошибка входа';
-        setMessage(errorMsg);
-        
-        if (error.response?.data?.needVerification && error.response?.data?.email) {
-            setPendingEmail(email);
-            setShowVerificationDialog(true);
-            setMessage('Подтвердите email. Проверьте почту.');
+        try {
+            const res = await axios.post(`${API_URL}/auth/login`, {
+                email,
+                password
+            });
+            
+            console.log('Login response:', res.data);
+            console.log('User role:', res.data.user?.role);
+            
+            localStorage.setItem('token', res.data.token);
+            setUser(res.data.user);
+            setUserRole(res.data.user?.role || 'user');
+            setIsLoggedIn(true);
+            setMessage('Добро пожаловать!');
+            loadFiles(res.data.token);
+            setShowWelcome(true);
+            setTimeout(() => setShowWelcome(false), 5000);
+        } catch (error) {
+            const errorMsg = error.response?.data?.error || 'Ошибка входа';
+            setMessage(errorMsg);
+            
+            if (error.response?.data?.needVerification && error.response?.data?.email) {
+                setPendingEmail(email);
+                setShowVerificationDialog(true);
+                setMessage('Подтвердите email. Проверьте почту.');
+            }
+        } finally {
+            setLoading(false);
         }
-    } finally {
-        setLoading(false);
-    }
-};
+    };
 
     const handleLogout = () => {
         localStorage.removeItem('token');
@@ -227,56 +237,53 @@ function App() {
     };
 
     const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    
-    const token = localStorage.getItem('token');
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    setUploading(true);
-    // Показываем, что проверка началась
-    showToast(`🔍 Проверка файла "${file.name}" на вирусы...`, 'info');
-    
-    try {
-        const response = await axios.post(`${API_URL}/files/upload`, formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-                Authorization: `Bearer ${token}`
-            }
-        });
+        const file = event.target.files[0];
+        if (!file) return;
         
-        // Успешная загрузка с проверкой
-        if (response.data.virus_check) {
-            const check = response.data.virus_check;
-            if (check.performed) {
-                showToast(`✅ ${check.result}`, 'success');
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        setUploading(true);
+        showToast(`🔍 Проверка файла "${file.name}" на вирусы...`, 'info');
+        
+        try {
+            const response = await axios.post(`${API_URL}/files/upload`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    Authorization: `Bearer ${token}`
+                }
+            });
+            
+            if (response.data.virus_check) {
+                const check = response.data.virus_check;
+                if (check.performed) {
+                    showToast(`✅ ${check.result}`, 'success');
+                } else {
+                    showToast(`⚠️ ${check.result}`, 'warning');
+                }
             } else {
-                showToast(`⚠️ ${check.result}`, 'warning');
+                showToast(`✅ Файл "${file.name}" успешно загружен!`, 'success');
             }
-        } else {
-            showToast(`✅ Файл "${file.name}" успешно загружен!`, 'success');
+            
+            await loadFiles(token);
+            
+        } catch (error) {
+            console.error('Upload error:', error);
+            
+            if (error.response?.data?.code === 'VIRUS_DETECTED') {
+                showToast(`🦠 ВНИМАНИЕ! ${error.response.data.error}`, 'error');
+            } else if (error.response?.data?.code === 'FORBIDDEN_EXTENSION') {
+                showToast(`🚫 ${error.response.data.error}`, 'error');
+            } else if (error.response?.data?.error) {
+                showToast(`❌ ${error.response.data.error}`, 'error');
+            } else {
+                showToast(`❌ Ошибка при загрузке файла`, 'error');
+            }
+        } finally {
+            setUploading(false);
         }
-        
-        await loadFiles(token);
-        
-    } catch (error) {
-        console.error('Upload error:', error);
-        
-        // Обрабатываем ошибки проверки
-        if (error.response?.data?.code === 'VIRUS_DETECTED') {
-            showToast(`🦠 ВНИМАНИЕ! ${error.response.data.error}`, 'error');
-        } else if (error.response?.data?.code === 'FORBIDDEN_EXTENSION') {
-            showToast(`🚫 ${error.response.data.error}`, 'error');
-        } else if (error.response?.data?.error) {
-            showToast(`❌ ${error.response.data.error}`, 'error');
-        } else {
-            showToast(`❌ Ошибка при загрузке файла`, 'error');
-        }
-    } finally {
-        setUploading(false);
-    }
-};
+    };
 
     const handleDelete = async (fileId) => {
         const token = localStorage.getItem('token');
@@ -356,7 +363,24 @@ function App() {
         }
     };
 
-    
+    const handleEmptyTrash = async () => {
+        const token = localStorage.getItem('token');
+        if (window.confirm('Очистить корзину? Все файлы будут удалены навсегда.')) {
+            try {
+                await axios.delete(`${API_URL}/files/trash/empty`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                
+                await loadTrashFiles();
+                await loadFiles(token);
+                setMessage('Корзина очищена');
+                setTimeout(() => setMessage(''), 3000);
+            } catch (error) {
+                console.error('Empty trash error:', error);
+                setMessage('Ошибка при очистке корзины');
+            }
+        }
+    };
 
     const toggleFileSelection = (fileId) => {
         if (selectedFiles.includes(fileId)) {
@@ -466,6 +490,8 @@ function App() {
         }
     };
 
+    // ========== СОРТИРОВКА И ФИЛЬТРАЦИЯ ==========
+    
     const sortedFiles = [...files].sort((a, b) => {
         let comparison = 0;
         switch(sortBy) {
@@ -522,6 +548,8 @@ function App() {
         return 'Добрый вечер';
     };
 
+    // ========== СТИЛИ (оставляем без изменений) ==========
+    
     const colors = {
         dark: '#1a1a2e',
         darker: '#0f0f1a',
@@ -822,6 +850,12 @@ function App() {
         },
         toastError: {
             backgroundColor: '#e94560'
+        },
+        toastWarning: {
+            backgroundColor: '#ffa500'
+        },
+        toastInfo: {
+            backgroundColor: '#3498db'
         }
     };
 
@@ -970,6 +1004,8 @@ function App() {
         }
     `;
 
+    // ========== ДИАЛОГ ПОДТВЕРЖДЕНИЯ ==========
+    
     if (showVerificationDialog) {
         const dialogStyles = {
             container: {
@@ -1093,6 +1129,8 @@ function App() {
         );
     }
 
+    // ========== ОСНОВНОЙ РЕНДЕР (АВТОРИЗОВАН) ==========
+    
     if (isLoggedIn && user) {
         const totalFiles = files.length;
         const totalSize = files.reduce((acc, f) => acc + f.size, 0).toFixed(1);
@@ -1161,10 +1199,23 @@ function App() {
                         </div>
                         <div style={{ background: colors.cardBg, borderRadius: '16px', padding: '20px', border: `1px solid ${colors.border}`, backdropFilter: 'blur(10px)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}><span style={{ fontSize: '32px' }}>⚡</span><h3 style={{ margin: 0, fontSize: '18px' }}>Быстрый доступ</h3></div>
-                            <button onClick={() => document.getElementById('fileInput').click()} style={{ width: '100%', padding: '12px', marginBottom: '10px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, border: 'none', borderRadius: '12px', color: colors.text, fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>⬆️ Загрузить файл</button>
+                            <button onClick={() => {
+                                if (showTrash) {
+                                    setShowTrash(false);
+                                    setTimeout(() => {
+                                        const fileInput = document.getElementById('fileInput');
+                                        if (fileInput) fileInput.click();
+                                    }, 100);
+                                } else {
+                                    const fileInput = document.getElementById('fileInput');
+                                    if (fileInput) fileInput.click();
+                                }
+                            }} style={{ width: '100%', padding: '12px', marginBottom: '10px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, border: 'none', borderRadius: '12px', color: colors.text, fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>
+                                ⬆️ Загрузить файл
+                            </button>
                             <button onClick={() => {
                                 if (!showTrash) {
-                                    loadTrashFiles(); // Загружаем корзину только когда открываем её
+                                    loadTrashFiles();
                                 }
                                 setShowTrash(!showTrash);
                             }} style={{ width: '100%', padding: '12px', background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: '12px', color: colors.text, cursor: 'pointer', fontSize: '14px' }}>
@@ -1178,21 +1229,23 @@ function App() {
                     </div>
 
                     {/* Админ-панель */}
-                    {userRole === 'admin' && <AdminPanel token={localStorage.getItem('token')} colors={colors} />}
+                    {userRole === 'admin' && !showTrash && <AdminPanel token={localStorage.getItem('token')} colors={colors} />}
 
                     <div style={styles.searchBar}>
                         <input type="text" placeholder="🔍 Поиск файлов..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={styles.searchInput} />
                     </div>
 
-                    <div style={styles.uploadCard}>
-                        <div className="upload-area" style={styles.uploadArea}>
-                            <div style={{ fontSize: '56px', marginBottom: '15px' }}>⬆️</div>
-                            <h3>Загрузить файлы до (100 мб)</h3>
-                            <p style={{ color: colors.textSecondary }}>Перетащите файлы сюда или нажмите для выбора</p>
-                            <input type="file" style={{ display: 'none' }} id="fileInput" onChange={handleFileUpload} />
-                            <button onClick={() => document.getElementById('fileInput').click()} style={{ padding: '12px 32px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, color: colors.text, border: 'none', borderRadius: '25px', cursor: 'pointer' }} disabled={uploading}>{uploading ? 'Загрузка...' : 'Выбрать файлы'}</button>
+                    {!showTrash && (
+                        <div style={styles.uploadCard}>
+                            <div className="upload-area" style={styles.uploadArea}>
+                                <div style={{ fontSize: '56px', marginBottom: '15px' }}>⬆️</div>
+                                <h3>Загрузить файлы до (100 мб)</h3>
+                                <p style={{ color: colors.textSecondary }}>Перетащите файлы сюда или нажмите для выбора</p>
+                                <input type="file" style={{ display: 'none' }} id="fileInput" onChange={handleFileUpload} />
+                                <button onClick={() => document.getElementById('fileInput').click()} style={{ padding: '12px 32px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, color: colors.text, border: 'none', borderRadius: '25px', cursor: 'pointer' }} disabled={uploading}>{uploading ? 'Загрузка...' : 'Выбрать файлы'}</button>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {showTrash && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '15px', background: colors.cardBg, borderRadius: '10px', border: `1px solid ${colors.border}` }}>
@@ -1251,7 +1304,13 @@ function App() {
 
                 {/* Тост уведомление */}
                 {toast.show && (
-                    <div style={{ ...styles.toast, ...(toast.type === 'success' ? styles.toastSuccess : styles.toastError) }}>
+                    <div style={{ 
+                        ...styles.toast, 
+                        ...(toast.type === 'success' ? styles.toastSuccess : 
+                            toast.type === 'error' ? styles.toastError :
+                            toast.type === 'warning' ? styles.toastWarning : 
+                            styles.toastInfo) 
+                    }}>
                         {toast.message}
                     </div>
                 )}
@@ -1259,6 +1318,8 @@ function App() {
         );
     }
 
+    // ========== ФОРМА ВХОДА/РЕГИСТРАЦИИ ==========
+    
     const formStyles = {
         container: {
             minHeight: '100vh',
@@ -1316,7 +1377,7 @@ function App() {
             marginTop: '20px',
             width: '100%'
         },
-       message: {
+        message: {
             marginTop: '20px',
             padding: '12px 20px',
             borderRadius: '10px',
@@ -1329,7 +1390,7 @@ function App() {
             transform: 'translateX(-50%)',
             zIndex: 1000,
             animation: 'slideUp 0.3s ease-out',
-            backgroundColor: colors.accent, // ← убрали messageType
+            backgroundColor: messageType === 'success' ? '#4ecdc4' : colors.accent,
             color: colors.text,
             boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
         },
@@ -1339,7 +1400,7 @@ function App() {
         <div style={formStyles.container}>
             <style>{animationStyles}</style>
             <div style={formStyles.card}>
-                <h2 style={formStyles.title}>{isLogin ? 'Добро пожаловать' : ' Создать аккаунт'}</h2>
+                <h2 style={formStyles.title}>{isLogin ? 'Добро пожаловать' : 'Создать аккаунт'}</h2>
                 <form onSubmit={isLogin ? handleLogin : handleRegister} style={formStyles.form}>
                     {!isLogin && <input type="text" placeholder="Полное имя" value={fullName} onChange={(e) => setFullName(e.target.value)} style={formStyles.input} />}
                     <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={formStyles.input} required />
