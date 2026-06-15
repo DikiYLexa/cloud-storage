@@ -1316,7 +1316,7 @@ function App() {
             marginTop: '20px',
             width: '100%'
         },
-        message: {
+       message: {
             marginTop: '20px',
             padding: '12px 20px',
             borderRadius: '10px',
@@ -1329,7 +1329,7 @@ function App() {
             transform: 'translateX(-50%)',
             zIndex: 1000,
             animation: 'slideUp 0.3s ease-out',
-            backgroundColor: messageType === 'success' ? '#4ecdc4' : colors.accent,
+            backgroundColor: colors.accent, // ← убрали messageType
             color: colors.text,
             boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
         },
