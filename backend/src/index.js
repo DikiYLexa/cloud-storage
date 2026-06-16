@@ -395,13 +395,13 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
 
 // ========== ВСЕ GET-ЗАПРОСЫ НА СТРАНИЦЫ (НЕ API) ==========
 // Этот маршрут должен быть ПОСЛЕ всех API маршрутов
-app.get('*', (req, res) => {
-    // Проверяем, что это не API запрос
-    if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(__dirname, '../public/index.html'));
-    } else {
-        res.status(404).json({ error: 'API endpoint not found' });
+app.get('/*', (req, res) => {
+    // Не обрабатываем API запросы
+    if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: 'API endpoint not found' });
     }
+    // Отдаём index.html для всех остальных запросов
+    res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // ========== ЗАПУСК ==========
