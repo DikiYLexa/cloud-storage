@@ -15,6 +15,9 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// ========== РАЗДАЧА СТАТИЧЕСКИХ ФАЙЛОВ ФРОНТЕНДА ==========
+app.use(express.static(path.join(__dirname, '../public')));
+
 // Подключение роутов
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -67,6 +70,13 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
             return res.status(400).json({ error: 'Файл не загружен' });
         }
 
+        // Быстрая проверка расширения
+        const extCheck = quickExtensionCheck(req.file.originalname);
+        if (extCheck.isDangerous) {
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({ error: extCheck.message, code: 'FORBIDDEN_EXTENSION' });
+        }
+
         const pool = await poolPromise;
         if (!pool) throw new Error('Database not connected');
         
@@ -101,6 +111,9 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
         });
     } catch (error) {
         console.error('Upload error:', error);
+        if (req.file && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+        }
         res.status(500).json({ error: 'Ошибка при загрузке файла' });
     }
 });
@@ -378,6 +391,11 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
         console.error('Profile error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
+});
+
+// ========== ВСЕ GET-ЗАПРОСЫ (КРОМЕ /api) ОТДАЮТ INDEX.HTML ==========
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // ========== ЗАПУСК ==========

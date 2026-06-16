@@ -1,7 +1,9 @@
 const mysql = require('mysql2/promise');
 
 const getConfig = () => {
+    // В production используем MYSQL_URL от Railway
     if (process.env.MYSQL_URL) {
+        console.log('📡 Connecting to MySQL (Railway)...');
         return {
             uri: process.env.MYSQL_URL,
             waitForConnections: true,
@@ -10,6 +12,8 @@ const getConfig = () => {
         };
     }
     
+    // В разработке используем локальный конфиг
+    console.log('📡 Connecting to MySQL (Local)...');
     return {
         host: process.env.DB_HOST || 'localhost',
         user: process.env.DB_USER || 'cloud_user',
@@ -28,8 +32,8 @@ const poolPromise = (async () => {
     try {
         const config = getConfig();
         
-        console.log('📡 Connecting to MySQL...');
-        console.log('🔧 Host:', config.host || config.uri);
+        console.log('🔧 Host:', config.host || 'from MYSQL_URL');
+        console.log('🔧 Database:', config.database || 'from MYSQL_URL');
         
         if (config.uri) {
             pool = await mysql.createPool(config.uri);
@@ -39,7 +43,7 @@ const poolPromise = (async () => {
         
         const connection = await pool.getConnection();
         const [result] = await connection.query('SELECT DATABASE() AS CurrentDB');
-        console.log('✅ Connected to MySQL!');
+        console.log('✅ Connected to MySQL Server!');
         console.log('🔍 Database:', result[0].CurrentDB);
         connection.release();
         

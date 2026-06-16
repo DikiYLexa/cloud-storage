@@ -49,18 +49,16 @@ const register = async (req, res) => {
             full_name: full_name || null
         };
 
-        try {
-            await sendVerificationEmail(email, confirmationCode, full_name || email.split('@')[0]);
-            console.log('✅ Код подтверждения для', email, ':', confirmationCode);
-        } catch (mailError) {
-            console.error('Failed to send email:', mailError);
-        }
+        // Отправляем письмо в фоне (не ждём результата)
+        sendVerificationEmail(email, confirmationCode, full_name || email.split('@')[0])
+            .then(() => console.log('✅ Письмо отправлено на', email))
+            .catch(err => console.error('❌ Ошибка отправки письма:', err.message));
 
+        // Сразу возвращаем ответ без dev_code
         res.status(201).json({
-            message: 'Регистрация успешна! Введите 6-значный код подтверждения.',
+            message: 'Код подтверждения отправлен на почту!',
             user: newUser,
-            needVerification: true,
-            dev_code: confirmationCode
+            needVerification: true
         });
 
     } catch (error) {
@@ -135,10 +133,12 @@ const resendCode = async (req, res) => {
             [newCode, email]
         );
 
-        await sendVerificationEmail(email, newCode, user[0].full_name || email.split('@')[0]);
-        console.log('✅ Новый код подтверждения для', email, ':', newCode);
+        // Отправляем письмо в фоне
+        sendVerificationEmail(email, newCode, user[0].full_name || email.split('@')[0])
+            .then(() => console.log('✅ Новый код отправлен на', email))
+            .catch(err => console.error('❌ Ошибка отправки кода:', err.message));
 
-        res.json({ message: 'Новый код отправлен', dev_code: newCode });
+        res.json({ message: 'Новый код отправлен на почту' });
 
     } catch (error) {
         console.error('Resend error:', error);
