@@ -150,17 +150,15 @@ function App() {
         
         console.log('Registration response:', res.data);
         
-        if (res.data.needVerification) {
+       if (res.data.needVerification) {
             setPendingEmail(email);
-            // ПОКАЗЫВАЕМ КОД ПОЛЬЗОВАТЕЛЮ
-            if (res.data.needVerification) {
-                setPendingEmail(email);
-                if (res.data.dev_code) {
-                    setVerificationCode(res.data.dev_code);
-                }
-                setShowVerificationDialog(true);
-                setMessage('');
+            if (res.data.dev_code) {
+                setVerificationCode(res.data.dev_code);
             }
+            setShowVerificationDialog(true);
+            setMessage('');
+
+            
         } else {
             localStorage.setItem('token', res.data.token);
             setUser(res.data.user);
@@ -1285,14 +1283,50 @@ function App() {
                     )}
 
                     {showTrash && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '15px', background: colors.cardBg, borderRadius: '10px', border: `1px solid ${colors.border}` }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: colors.text }}><input type="checkbox" checked={selectAll} onChange={toggleSelectAll} style={{ width: '18px', height: '18px', cursor: 'pointer' }} /> Выбрать все ({trashFiles.length})</label>
-                                <span style={{ color: colors.textSecondary }}>Выбрано: {selectedFiles.length}</span>
-                            </div>
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <button onClick={handleMassRestore} disabled={selectedFiles.length === 0} style={{ padding: '8px 16px', background: selectedFiles.length > 0 ? `linear-gradient(135deg, #4ecdc4, #44b3a8)` : colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '8px', color: selectedFiles.length > 0 ? colors.text : colors.textSecondary, cursor: selectedFiles.length > 0 ? 'pointer' : 'not-allowed', fontSize: '14px' }}>↩️ Восстановить ({selectedFiles.length})</button>
-                                <button onClick={handleMassDelete} disabled={selectedFiles.length === 0} style={{ padding: '8px 16px', background: selectedFiles.length > 0 ? `linear-gradient(135deg, ${colors.accent}, #c41e3a)` : colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '8px', color: selectedFiles.length > 0 ? colors.text : colors.textSecondary, cursor: selectedFiles.length > 0 ? 'pointer' : 'not-allowed', fontSize: '14px' }}>🗑️ Удалить ({selectedFiles.length})</button>
+    <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: '20px', 
+        padding: '15px', 
+        background: colors.cardBg, 
+        borderRadius: '10px', 
+        border: `1px solid ${colors.border}`,
+        flexWrap: 'wrap',
+        gap: '10px'
+    }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: colors.text }}>
+                <input type="checkbox" checked={selectAll} onChange={toggleSelectAll} style={{ width: '18px', height: '18px', cursor: 'pointer' }} /> 
+                Выбрать все ({trashFiles.length})
+            </label>
+            <span style={{ color: colors.textSecondary }}>Выбрано: {selectedFiles.length}</span>
+        </div>
+        <div style={{ 
+                display: 'flex', 
+                gap: '10px',
+                flexDirection: 'row'
+            }}>
+                                <button onClick={handleMassRestore} disabled={selectedFiles.length === 0} style={{ 
+                                    padding: '8px 16px', 
+                                    background: selectedFiles.length > 0 ? `linear-gradient(135deg, #4ecdc4, #44b3a8)` : colors.cardBg, 
+                                    border: `1px solid ${colors.border}`, 
+                                    borderRadius: '8px', 
+                                    color: selectedFiles.length > 0 ? colors.text : colors.textSecondary, 
+                                    cursor: selectedFiles.length > 0 ? 'pointer' : 'not-allowed', 
+                                    fontSize: '14px',
+                                    whiteSpace: 'nowrap'
+                                }}>↩️ Восстановить ({selectedFiles.length})</button>
+                                <button onClick={handleMassDelete} disabled={selectedFiles.length === 0} style={{ 
+                                    padding: '8px 16px', 
+                                    background: selectedFiles.length > 0 ? `linear-gradient(135deg, ${colors.accent}, #c41e3a)` : colors.cardBg, 
+                                    border: `1px solid ${colors.border}`, 
+                                    borderRadius: '8px', 
+                                    color: selectedFiles.length > 0 ? colors.text : colors.textSecondary, 
+                                    cursor: selectedFiles.length > 0 ? 'pointer' : 'not-allowed', 
+                                    fontSize: '14px',
+                                    whiteSpace: 'nowrap'
+                                }}>🗑️ Удалить ({selectedFiles.length})</button>
                             </div>
                         </div>
                     )}
@@ -1319,19 +1353,9 @@ function App() {
                                     <div>{file.sizeFormatted}</div>
                                     <div>{formatDate(file.dateObj)}</div>
                                     <div>{file.type.toUpperCase()}</div>
-                                    <div style={{ display: 'flex', gap: '10px' }}>
-                                        {showTrash ? (
-                                            <>
-                                                <button onClick={() => handleRestore(file.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: colors.textSecondary }} title="Восстановить">↩️</button>
-                                                <button onClick={() => handlePermanentDelete(file.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: colors.accent }} title="Удалить навсегда">🗑️</button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button onClick={() => handleDownload(file.id, file.name)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: colors.textSecondary }} title="Скачать">⬇️</button>
-                                                <button onClick={() => handleCreateShareLink(file.id, file.name)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: colors.textSecondary }} title="Поделиться">🔗</button>
-                                                <button onClick={() => handleDelete(file.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: colors.accent }} title="Удалить">🗑️</button>
-                                            </>
-                                        )}
+                                    <div style={{ display: 'flex', gap: '10px', flexDirection: 'row' }}>
+                                        <button onClick={handleMassRestore} disabled={selectedFiles.length === 0} style={{ padding: '8px 16px', background: selectedFiles.length > 0 ? `linear-gradient(135deg, #4ecdc4, #44b3a8)` : colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '8px', color: selectedFiles.length > 0 ? colors.text : colors.textSecondary, cursor: selectedFiles.length > 0 ? 'pointer' : 'not-allowed', fontSize: '14px' }}>↩️ Восстановить ({selectedFiles.length})</button>
+                                        <button onClick={handleMassDelete} disabled={selectedFiles.length === 0} style={{ padding: '8px 16px', background: selectedFiles.length > 0 ? `linear-gradient(135deg, ${colors.accent}, #c41e3a)` : colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '8px', color: selectedFiles.length > 0 ? colors.text : colors.textSecondary, cursor: selectedFiles.length > 0 ? 'pointer' : 'not-allowed', fontSize: '14px' }}>🗑️ Удалить ({selectedFiles.length})</button>
                                     </div>
                                 </div>
                             ))
