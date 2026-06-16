@@ -1,0 +1,9 @@
+{
+  "name": "cloud-storage",
+  "scripts": {
+    "start": "cd backend && node src/index.js"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
