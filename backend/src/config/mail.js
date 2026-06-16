@@ -7,18 +7,17 @@ const sendVerificationEmail = async (to, code, username) => {
     console.log(`Код: ${code}`);
     console.log('======================================');
     
-    // Настройки для Mail.ru SMTP - правильная конфигурация
+    // Настройки для Mail.ru SMTP с портом 465
     const transporter = nodemailer.createTransport({
         host: 'smtp.mail.ru',
         port: 465,
-        secure: true,  // Важно! Для порта 465 нужно true
+        secure: true,
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASS
         },
         tls: {
-            rejectUnauthorized: false,
-            ciphers: 'SSLv3'
+            rejectUnauthorized: false
         }
     });
 

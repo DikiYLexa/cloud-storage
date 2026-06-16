@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { poolPromise, sql } = require('../config/db');
+const { poolPromise } = require('../config/db');
 
 // ========== MIDDLEWARE ДЛЯ ПРОВЕРКИ АДМИНА ==========
 const checkAdmin = async (req, res, next) => {
@@ -8,24 +8,25 @@ const checkAdmin = async (req, res, next) => {
         console.log('Checking admin for user_id:', req.user.userId);
         
         const pool = await poolPromise;
-        const result = await pool.request()
-            .input('user_id', sql.Int, req.user.userId)
-            .query(`
-                SELECT r.name as role_name 
-                FROM Users u
-                JOIN Roles r ON u.role_id = r.id
-                WHERE u.id = @user_id
-            `);
+        if (!pool) throw new Error('Database not connected');
         
-        console.log('Query result:', result.recordset);
+        const [result] = await pool.execute(
+            `SELECT r.name as role_name 
+             FROM Users u
+             JOIN Roles r ON u.role_id = r.id
+             WHERE u.id = ?`,
+            [req.user.userId]
+        );
         
-        if (result.recordset.length === 0) {
+        console.log('Query result:', result);
+        
+        if (result.length === 0) {
             console.log('User not found');
             return res.status(403).json({ error: 'Пользователь не найден' });
         }
         
-        if (result.recordset[0].role_name !== 'admin') {
-            console.log('User is not admin, role:', result.recordset[0].role_name);
+        if (result[0].role_name !== 'admin') {
+            console.log('User is not admin, role:', result[0].role_name);
             return res.status(403).json({ error: 'Доступ запрещён. Требуются права администратора.' });
         }
         
@@ -41,24 +42,24 @@ const checkAdmin = async (req, res, next) => {
 router.get('/users', checkAdmin, async (req, res) => {
     try {
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
+
+        const [result] = await pool.execute(`
+            SELECT 
+                u.id, 
+                u.email, 
+                u.full_name, 
+                u.storage_used, 
+                u.storage_limit,
+                r.name as role_name,
+                u.created_at,
+                u.last_login
+            FROM Users u
+            LEFT JOIN Roles r ON u.role_id = r.id
+            ORDER BY u.id
+        `);
         
-        const result = await pool.request()
-            .query(`
-                SELECT 
-                    u.id, 
-                    u.email, 
-                    u.full_name, 
-                    u.storage_used, 
-                    u.storage_limit,
-                    r.name as role_name,
-                    u.created_at,
-                    u.last_login
-                FROM Users u
-                LEFT JOIN Roles r ON u.role_id = r.id
-                ORDER BY u.id
-            `);
-        
-        const usersWithStats = result.recordset.map(user => ({
+        const usersWithStats = result.map(user => ({
             id: user.id,
             email: user.email,
             full_name: user.full_name || '-',
@@ -81,51 +82,49 @@ router.get('/users', checkAdmin, async (req, res) => {
 router.get('/stats', checkAdmin, async (req, res) => {
     try {
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
+
+        const [userStats] = await pool.execute(`
+            SELECT 
+                COUNT(*) AS total_users,
+                SUM(storage_used) AS total_storage_used,
+                SUM(storage_limit) AS total_storage_limit,
+                SUM(CASE WHEN last_login IS NOT NULL THEN 1 ELSE 0 END) AS active_users
+            FROM Users
+        `);
         
-        const userStats = await pool.request()
-            .query(`
-                SELECT 
-                    COUNT(*) AS total_users,
-                    SUM(storage_used) AS total_storage_used,
-                    SUM(storage_limit) AS total_storage_limit,
-                    SUM(CASE WHEN last_login IS NOT NULL THEN 1 ELSE 0 END) AS active_users
-                FROM Users
-            `);
+        const [fileStats] = await pool.execute(`
+            SELECT 
+                COUNT(*) AS total_files,
+                SUM(file_size) AS total_files_size
+            FROM Files
+            WHERE is_deleted = 0
+        `);
         
-        const fileStats = await pool.request()
-            .query(`
-                SELECT 
-                    COUNT(*) AS total_files,
-                    SUM(file_size) AS total_files_size
-                FROM Files
-                WHERE is_deleted = 0
-            `);
-        
-        const trashStats = await pool.request()
-            .query(`
-                SELECT 
-                    COUNT(*) AS deleted_files,
-                    SUM(file_size) AS deleted_size
-                FROM Files
-                WHERE is_deleted = 1
-            `);
+        const [trashStats] = await pool.execute(`
+            SELECT 
+                COUNT(*) AS deleted_files,
+                SUM(file_size) AS deleted_size
+            FROM Files
+            WHERE is_deleted = 1
+        `);
         
         const stats = {
             users: {
-                total: userStats.recordset[0].total_users,
-                active: userStats.recordset[0].active_users,
-                inactive: userStats.recordset[0].total_users - userStats.recordset[0].active_users
+                total: userStats[0]?.total_users || 0,
+                active: userStats[0]?.active_users || 0,
+                inactive: (userStats[0]?.total_users || 0) - (userStats[0]?.active_users || 0)
             },
             storage: {
-                used_mb: (userStats.recordset[0].total_storage_used / 1024 / 1024).toFixed(2),
-                limit_mb: (userStats.recordset[0].total_storage_limit / 1024 / 1024).toFixed(0),
-                usage_percent: ((userStats.recordset[0].total_storage_used / userStats.recordset[0].total_storage_limit) * 100).toFixed(1)
+                used_mb: ((userStats[0]?.total_storage_used || 0) / 1024 / 1024).toFixed(2),
+                limit_mb: ((userStats[0]?.total_storage_limit || 0) / 1024 / 1024).toFixed(0),
+                usage_percent: ((userStats[0]?.total_storage_used || 0) / (userStats[0]?.total_storage_limit || 1) * 100).toFixed(1)
             },
             files: {
-                total: fileStats.recordset[0].total_files,
-                total_size_mb: (fileStats.recordset[0].total_files_size / 1024 / 1024).toFixed(2),
-                deleted: trashStats.recordset[0].deleted_files,
-                deleted_size_mb: (trashStats.recordset[0].deleted_size / 1024 / 1024).toFixed(2)
+                total: fileStats[0]?.total_files || 0,
+                total_size_mb: ((fileStats[0]?.total_files_size || 0) / 1024 / 1024).toFixed(2),
+                deleted: trashStats[0]?.deleted_files || 0,
+                deleted_size_mb: ((trashStats[0]?.deleted_size || 0) / 1024 / 1024).toFixed(2)
             }
         };
         
@@ -147,12 +146,14 @@ router.put('/users/:id/limit', checkAdmin, async (req, res) => {
     
     try {
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
+        
         const limitBytes = limit_mb * 1024 * 1024;
         
-        await pool.request()
-            .input('user_id', sql.Int, userId)
-            .input('limit', sql.BigInt, limitBytes)
-            .query('UPDATE Users SET storage_limit = @limit WHERE id = @user_id');
+        await pool.execute(
+            'UPDATE Users SET storage_limit = ? WHERE id = ?',
+            [limitBytes, userId]
+        );
         
         res.json({ message: 'Лимит обновлён', limit_mb: limit_mb });
     } catch (error) {

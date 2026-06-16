@@ -1210,10 +1210,18 @@ function App() {
                                 ⬆️ Загрузить файл
                             </button>
                             <button onClick={() => {
-                                if (!showTrash) {
+                                if (showTrash) {
+                                    // Возвращаемся к файлам - обновляем список
+                                    setShowTrash(false);
+                                    const token = localStorage.getItem('token');
+                                    if (token) {
+                                        loadFiles(token);
+                                    }
+                                } else {
+                                    // Идём в корзину - загружаем корзину
                                     loadTrashFiles();
+                                    setShowTrash(true);
                                 }
-                                setShowTrash(!showTrash);
                             }} style={{ width: '100%', padding: '12px', background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: '12px', color: colors.text, cursor: 'pointer', fontSize: '14px' }}>
                                 🗑️ {showTrash ? 'Вернуться к файлам' : 'Перейти в корзину'}
                             </button>
