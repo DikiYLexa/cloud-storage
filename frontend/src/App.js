@@ -137,35 +137,45 @@ function App() {
     };
 
     const handleRegister = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-        setMessage('');
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
 
-        try {
-            const res = await axios.post(`${API_URL}/auth/register`, {
-                email,
-                password,
-                full_name: fullName
-            });
-            
+    try {
+        const res = await axios.post(`${API_URL}/auth/register`, {
+            email,
+            password,
+            full_name: fullName
+        });
+        
+        console.log('Registration response:', res.data);
+        
+        if (res.data.needVerification) {
+            setPendingEmail(email);
+            // ПОКАЗЫВАЕМ КОД ПОЛЬЗОВАТЕЛЮ
             if (res.data.needVerification) {
                 setPendingEmail(email);
+                if (res.data.dev_code) {
+                    setVerificationCode(res.data.dev_code);
+                }
                 setShowVerificationDialog(true);
                 setMessage('');
-            } else {
-                localStorage.setItem('token', res.data.token);
-                setUser(res.data.user);
-                setIsLoggedIn(true);
-                setMessage('Регистрация успешна! Добро пожаловать!');
-                setShowWelcome(true);
-                setTimeout(() => setShowWelcome(false), 5000);
             }
-        } catch (error) {
-            setMessage(error.response?.data?.error || 'Ошибка регистрации');
-        } finally {
-            setLoading(false);
+        } else {
+            localStorage.setItem('token', res.data.token);
+            setUser(res.data.user);
+            setIsLoggedIn(true);
+            setMessage('Регистрация успешна! Добро пожаловать!');
+            setShowWelcome(true);
+            setTimeout(() => setShowWelcome(false), 5000);
         }
-    };
+    } catch (error) {
+        console.error('Registration error:', error);
+        setMessage(error.response?.data?.error || 'Ошибка регистрации');
+    } finally {
+        setLoading(false);
+    }
+};
 
     const handleCreateShareLink = async (fileId, fileName) => {
         const token = localStorage.getItem('token');
@@ -1000,7 +1010,7 @@ function App() {
         }
     `;
 
-    // ========== ДИАЛОГ ПОДТВЕРЖДЕНИЯ ==========
+   // ========== ДИАЛОГ ПОДТВЕРЖДЕНИЯ ==========
     
     if (showVerificationDialog) {
         const dialogStyles = {
@@ -1029,6 +1039,21 @@ function App() {
                 background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`,
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent'
+            },
+            codeBlock: {
+                background: 'rgba(233,69,96,0.15)',
+                padding: '20px',
+                borderRadius: '12px',
+                marginBottom: '20px',
+                border: `1px solid ${colors.accent}`
+            },
+            codeText: {
+                fontSize: '48px',
+                fontWeight: 'bold',
+                letterSpacing: '8px',
+                color: colors.accent,
+                margin: '10px 0',
+                fontFamily: 'monospace'
             },
             input: {
                 width: '100%',
@@ -1077,10 +1102,9 @@ function App() {
             setLoading(true);
             try {
                 const res = await axios.post(`${API_URL}/auth/resend-code`, { email: pendingEmail });
-                setMessage('Новый код отправлен! Проверьте почту или консоль.');
+                setMessage('Новый код отправлен!');
                 if (res.data.dev_code) {
-                    console.log('Новый код:', res.data.dev_code);
-                    alert(`Новый код: ${res.data.dev_code}`);
+                    setVerificationCode(res.data.dev_code);
                 }
             } catch (error) {
                 setMessage(error.response?.data?.error || 'Ошибка отправки кода');
@@ -1093,8 +1117,18 @@ function App() {
             <div style={dialogStyles.container}>
                 <style>{animationStyles}</style>
                 <div style={dialogStyles.card}>
-                    <h2 style={dialogStyles.title}>📧 Подтверждение email</h2>
-                    <p style={dialogStyles.text}>На почту <strong>{pendingEmail}</strong> отправлен код подтверждения.</p>
+                    <h2 style={dialogStyles.title}> Подтверждение email</h2>
+                    <p style={dialogStyles.text}>Подтверждение для <strong>{pendingEmail}</strong></p>
+                    
+                    {/* БЛОК С КОДОМ НА ЭКРАНЕ */}
+                    {verificationCode && (
+                        <div style={dialogStyles.codeBlock}>
+                            <p style={{ margin: 0, fontSize: '14px', opacity: 0.8 }}>Ваш код подтверждения:</p>
+                            <p style={dialogStyles.codeText}>{verificationCode}</p>
+                            <p style={{ margin: 0, fontSize: '12px', opacity: 0.6 }}>Введите код ниже</p>
+                        </div>
+                    )}
+                    
                     <input
                         type="text"
                         maxLength="6"
@@ -1124,7 +1158,6 @@ function App() {
             </div>
         );
     }
-
     // ========== ОСНОВНОЙ РЕНДЕР (АВТОРИЗОВАН) ==========
     
     if (isLoggedIn && user) {

@@ -49,16 +49,17 @@ const register = async (req, res) => {
             full_name: full_name || null
         };
 
-        // Отправляем письмо в фоне (не ждём результата)
+        // Отправляем код на почту (опционально)
         sendVerificationEmail(email, confirmationCode, full_name || email.split('@')[0])
-            .then(() => console.log('✅ Письмо отправлено на', email))
-            .catch(err => console.error('❌ Ошибка отправки письма:', err.message));
+            .then(() => console.log('✅ Письмо отправлено'))
+            .catch(err => console.error('Ошибка отправки письма:', err.message));
 
-        // Сразу возвращаем ответ без dev_code
+        // ВОЗВРАЩАЕМ КОД В ОТВЕТЕ
         res.status(201).json({
             message: 'Код подтверждения отправлен на почту!',
             user: newUser,
-            needVerification: true
+            needVerification: true,
+            dev_code: confirmationCode  // ← КОД БУДЕТ ПОКАЗАН НА ЭКРАНЕ
         });
 
     } catch (error) {
