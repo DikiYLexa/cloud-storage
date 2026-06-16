@@ -393,9 +393,15 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
     }
 });
 
-// ========== ВСЕ GET-ЗАПРОСЫ (КРОМЕ /api) ОТДАЮТ INDEX.HTML ==========
+// ========== ВСЕ GET-ЗАПРОСЫ НА СТРАНИЦЫ (НЕ API) ==========
+// Этот маршрут должен быть ПОСЛЕ всех API маршрутов
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
+    // Проверяем, что это не API запрос
+    if (!req.path.startsWith('/api')) {
+        res.sendFile(path.join(__dirname, '../public/index.html'));
+    } else {
+        res.status(404).json({ error: 'API endpoint not found' });
+    }
 });
 
 // ========== ЗАПУСК ==========
