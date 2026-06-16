@@ -7,14 +7,18 @@ const sendVerificationEmail = async (to, code, username) => {
     console.log(`Код: ${code}`);
     console.log('======================================');
     
-    // РЕАЛЬНАЯ ОТПРАВКА ЧЕРЕЗ MAIL.RU
+    // Настройки для Mail.ru SMTP - правильная конфигурация
     const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST,
-        port: parseInt(process.env.EMAIL_PORT),
-        secure: true, // для порта 465 нужно true
+        host: 'smtp.mail.ru',
+        port: 465,
+        secure: true,  // Важно! Для порта 465 нужно true
         auth: {
             user: process.env.EMAIL_USER,
             pass: process.env.EMAIL_PASS
+        },
+        tls: {
+            rejectUnauthorized: false,
+            ciphers: 'SSLv3'
         }
     });
 
@@ -45,7 +49,7 @@ const sendVerificationEmail = async (to, code, username) => {
         return { success: true, code };
     } catch (error) {
         console.error('❌ Ошибка отправки письма:', error.message);
-        console.log('📌 Код сохранён в консоли для теста');
+        console.log(`📌 Код сохранён в консоли для теста: ${code}`);
         return { success: false, code };
     }
 };

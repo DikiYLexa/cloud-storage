@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const iconv = require('iconv-lite');
 const crypto = require('crypto');
-const { poolPromise, sql } = require('./config/db');
+const { poolPromise } = require('./config/db');
 const { authenticateToken } = require('./middleware/auth');
 const { scanFileForViruses, quickExtensionCheck } = require('./middleware/virusScan');
 
@@ -46,11 +46,13 @@ const upload = multer({
 app.get('/api/health', async (req, res) => {
     try {
         const pool = await poolPromise;
-        const result = await pool.request().query('SELECT GETDATE() as serverTime, DB_NAME() as dbName');
+        if (!pool) throw new Error('Database not connected');
+        
+        const [result] = await pool.execute('SELECT NOW() as serverTime, DATABASE() as dbName');
         res.json({ 
             status: 'ok', 
-            serverTime: result.recordset[0].serverTime,
-            database: result.recordset[0].dbName,
+            serverTime: result[0].serverTime,
+            database: result[0].dbName,
             message: 'Server and Database are ready!'
         });
     } catch (err) {
@@ -66,6 +68,7 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
         }
 
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
         
         let originalName = req.file.originalname;
         try {
@@ -74,31 +77,23 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
             console.log('Ошибка декодирования');
         }
         
-        const result = await pool.request()
-            .input('user_id', sql.Int, req.user.userId)
-            .input('original_name', sql.NVarChar, originalName)
-            .input('stored_name', sql.NVarChar, req.file.filename)
-            .input('stored_path', sql.NVarChar, req.file.path)
-            .input('file_size', sql.BigInt, req.file.size)
-            .input('mime_type', sql.NVarChar, req.file.mimetype)
-            .query(`
-                INSERT INTO Files (user_id, original_name, stored_name, stored_path, file_size, mime_type)
-                VALUES (@user_id, @original_name, @stored_name, @stored_path, @file_size, @mime_type);
-                SELECT SCOPE_IDENTITY() AS id;
-            `);
+        const [result] = await pool.execute(
+            `INSERT INTO Files (user_id, original_name, stored_name, stored_path, file_size, mime_type)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [req.user.userId, originalName, req.file.filename, req.file.path, req.file.size, req.file.mimetype]
+        );
 
-        await pool.request()
-            .input('user_id', sql.Int, req.user.userId)
-            .query(`
-                UPDATE Users 
-                SET storage_used = (SELECT ISNULL(SUM(file_size), 0) FROM Files WHERE user_id = @user_id AND is_deleted = 0)
-                WHERE id = @user_id
-            `);
+        await pool.execute(
+            `UPDATE Users 
+             SET storage_used = (SELECT IFNULL(SUM(file_size), 0) FROM Files WHERE user_id = ? AND is_deleted = 0)
+             WHERE id = ?`,
+            [req.user.userId, req.user.userId]
+        );
 
         res.json({
             message: 'Файл успешно загружен',
             file: {
-                id: result.recordset[0].id,
+                id: result.insertId,
                 original_name: originalName,
                 size: req.file.size,
                 mime_type: req.file.mimetype
@@ -114,15 +109,16 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
 app.get('/api/files', authenticateToken, async (req, res) => {
     try {
         const pool = await poolPromise;
-        const result = await pool.request()
-            .input('user_id', sql.Int, req.user.userId)
-            .query(`
-                SELECT id, original_name, file_size, mime_type, uploaded_at 
-                FROM Files 
-                WHERE user_id = @user_id AND is_deleted = 0
-                ORDER BY uploaded_at DESC
-            `);
-        res.json(result.recordset);
+        if (!pool) throw new Error('Database not connected');
+
+        const [result] = await pool.execute(
+            `SELECT id, original_name, file_size, mime_type, uploaded_at 
+             FROM Files 
+             WHERE user_id = ? AND is_deleted = 0
+             ORDER BY uploaded_at DESC`,
+            [req.user.userId]
+        );
+        res.json(result);
     } catch (error) {
         console.error('Get files error:', error);
         res.status(500).json({ error: 'Ошибка при получении списка файлов' });
@@ -133,20 +129,20 @@ app.get('/api/files', authenticateToken, async (req, res) => {
 app.get('/api/files/:id/download', authenticateToken, async (req, res) => {
     try {
         const pool = await poolPromise;
-        const result = await pool.request()
-            .input('id', sql.Int, req.params.id)
-            .input('user_id', sql.Int, req.user.userId)
-            .query(`
-                SELECT original_name, stored_path 
-                FROM Files 
-                WHERE id = @id AND user_id = @user_id AND is_deleted = 0
-            `);
+        if (!pool) throw new Error('Database not connected');
 
-        if (result.recordset.length === 0) {
+        const [result] = await pool.execute(
+            `SELECT original_name, stored_path 
+             FROM Files 
+             WHERE id = ? AND user_id = ? AND is_deleted = 0`,
+            [req.params.id, req.user.userId]
+        );
+
+        if (result.length === 0) {
             return res.status(404).json({ error: 'Файл не найден' });
         }
 
-        const file = result.recordset[0];
+        const file = result[0];
         if (!fs.existsSync(file.stored_path)) {
             return res.status(404).json({ error: 'Файл не найден на сервере' });
         }
@@ -164,14 +160,14 @@ app.get('/api/files/:id/download', authenticateToken, async (req, res) => {
 app.delete('/api/files/:id', authenticateToken, async (req, res) => {
     try {
         const pool = await poolPromise;
-        await pool.request()
-            .input('id', sql.Int, req.params.id)
-            .input('user_id', sql.Int, req.user.userId)
-            .query(`
-                UPDATE Files 
-                SET is_deleted = 1, deleted_at = GETDATE()
-                WHERE id = @id AND user_id = @user_id AND is_deleted = 0
-            `);
+        if (!pool) throw new Error('Database not connected');
+
+        await pool.execute(
+            `UPDATE Files 
+             SET is_deleted = 1, deleted_at = NOW()
+             WHERE id = ? AND user_id = ? AND is_deleted = 0`,
+            [req.params.id, req.user.userId]
+        );
         res.json({ message: 'Файл удалён' });
     } catch (error) {
         console.error('Delete error:', error);
@@ -183,15 +179,16 @@ app.delete('/api/files/:id', authenticateToken, async (req, res) => {
 app.get('/api/files/trash', authenticateToken, async (req, res) => {
     try {
         const pool = await poolPromise;
-        const result = await pool.request()
-            .input('user_id', sql.Int, req.user.userId)
-            .query(`
-                SELECT id, original_name, file_size, mime_type, uploaded_at, deleted_at 
-                FROM Files 
-                WHERE user_id = @user_id AND is_deleted = 1
-                ORDER BY deleted_at DESC
-            `);
-        res.json(result.recordset);
+        if (!pool) throw new Error('Database not connected');
+
+        const [result] = await pool.execute(
+            `SELECT id, original_name, file_size, mime_type, uploaded_at, deleted_at 
+             FROM Files 
+             WHERE user_id = ? AND is_deleted = 1
+             ORDER BY deleted_at DESC`,
+            [req.user.userId]
+        );
+        res.json(result);
     } catch (error) {
         console.error('Get trash error:', error);
         res.status(500).json({ error: 'Ошибка при получении корзины' });
@@ -202,14 +199,14 @@ app.get('/api/files/trash', authenticateToken, async (req, res) => {
 app.put('/api/files/:id/restore', authenticateToken, async (req, res) => {
     try {
         const pool = await poolPromise;
-        await pool.request()
-            .input('id', sql.Int, req.params.id)
-            .input('user_id', sql.Int, req.user.userId)
-            .query(`
-                UPDATE Files 
-                SET is_deleted = 0, deleted_at = NULL
-                WHERE id = @id AND user_id = @user_id AND is_deleted = 1
-            `);
+        if (!pool) throw new Error('Database not connected');
+
+        await pool.execute(
+            `UPDATE Files 
+             SET is_deleted = 0, deleted_at = NULL
+             WHERE id = ? AND user_id = ? AND is_deleted = 1`,
+            [req.params.id, req.user.userId]
+        );
         res.json({ message: 'Файл восстановлен' });
     } catch (error) {
         console.error('Restore error:', error);
@@ -221,24 +218,26 @@ app.put('/api/files/:id/restore', authenticateToken, async (req, res) => {
 app.delete('/api/files/:id/permanent', authenticateToken, async (req, res) => {
     try {
         const pool = await poolPromise;
-        const fileResult = await pool.request()
-            .input('id', sql.Int, req.params.id)
-            .input('user_id', sql.Int, req.user.userId)
-            .query('SELECT stored_path FROM Files WHERE id = @id AND user_id = @user_id AND is_deleted = 1');
+        if (!pool) throw new Error('Database not connected');
 
-        if (fileResult.recordset.length === 0) {
+        const [fileResult] = await pool.execute(
+            `SELECT stored_path FROM Files WHERE id = ? AND user_id = ? AND is_deleted = 1`,
+            [req.params.id, req.user.userId]
+        );
+
+        if (fileResult.length === 0) {
             return res.status(404).json({ error: 'Файл не найден в корзине' });
         }
 
-        const file = fileResult.recordset[0];
+        const file = fileResult[0];
         if (fs.existsSync(file.stored_path)) {
             fs.unlinkSync(file.stored_path);
         }
         
-        await pool.request()
-            .input('id', sql.Int, req.params.id)
-            .input('user_id', sql.Int, req.user.userId)
-            .query('DELETE FROM Files WHERE id = @id AND user_id = @user_id AND is_deleted = 1');
+        await pool.execute(
+            `DELETE FROM Files WHERE id = ? AND user_id = ? AND is_deleted = 1`,
+            [req.params.id, req.user.userId]
+        );
 
         res.json({ message: 'Файл полностью удалён' });
     } catch (error) {
@@ -251,19 +250,23 @@ app.delete('/api/files/:id/permanent', authenticateToken, async (req, res) => {
 app.delete('/api/files/trash/empty', authenticateToken, async (req, res) => {
     try {
         const pool = await poolPromise;
-        const filesResult = await pool.request()
-            .input('user_id', sql.Int, req.user.userId)
-            .query('SELECT stored_path FROM Files WHERE user_id = @user_id AND is_deleted = 1');
+        if (!pool) throw new Error('Database not connected');
 
-        for (const file of filesResult.recordset) {
+        const [filesResult] = await pool.execute(
+            `SELECT stored_path FROM Files WHERE user_id = ? AND is_deleted = 1`,
+            [req.user.userId]
+        );
+
+        for (const file of filesResult) {
             if (fs.existsSync(file.stored_path)) {
                 fs.unlinkSync(file.stored_path);
             }
         }
         
-        await pool.request()
-            .input('user_id', sql.Int, req.user.userId)
-            .query('DELETE FROM Files WHERE user_id = @user_id AND is_deleted = 1');
+        await pool.execute(
+            `DELETE FROM Files WHERE user_id = ? AND is_deleted = 1`,
+            [req.user.userId]
+        );
 
         res.json({ message: 'Корзина очищена' });
     } catch (error) {
@@ -279,13 +282,14 @@ app.post('/api/files/:id/share', authenticateToken, async (req, res) => {
     
     try {
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
+
+        const [fileCheck] = await pool.execute(
+            `SELECT id FROM Files WHERE id = ? AND user_id = ? AND is_deleted = 0`,
+            [fileId, req.user.userId]
+        );
         
-        const fileCheck = await pool.request()
-            .input('id', sql.Int, fileId)
-            .input('user_id', sql.Int, req.user.userId)
-            .query('SELECT id FROM Files WHERE id = @id AND user_id = @user_id AND is_deleted = 0');
-        
-        if (fileCheck.recordset.length === 0) {
+        if (fileCheck.length === 0) {
             return res.status(404).json({ error: 'Файл не найден' });
         }
         
@@ -293,16 +297,11 @@ app.post('/api/files/:id/share', authenticateToken, async (req, res) => {
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + expiresInHours);
         
-        await pool.request()
-            .input('file_id', sql.Int, fileId)
-            .input('user_id', sql.Int, req.user.userId)
-            .input('token', sql.NVarChar, token)
-            .input('expires_at', sql.DateTime, expiresAt)
-            .input('max_downloads', sql.Int, maxDownloads)
-            .query(`
-                INSERT INTO SharedLinks (file_id, user_id, token, expires_at, max_downloads)
-                VALUES (@file_id, @user_id, @token, @expires_at, @max_downloads)
-            `);
+        await pool.execute(
+            `INSERT INTO SharedLinks (file_id, user_id, token, expires_at, max_downloads)
+             VALUES (?, ?, ?, ?, ?)`,
+            [fileId, req.user.userId, token, expiresAt, maxDownloads]
+        );
         
         const shareUrl = `${req.protocol}://${req.get('host')}/api/s/${token}`;
         res.json({ success: true, shareUrl: shareUrl, token: token, expiresAt: expiresAt });
@@ -318,20 +317,21 @@ app.get('/api/s/:token', async (req, res) => {
     
     try {
         const pool = await poolPromise;
-        const result = await pool.request()
-            .input('token', sql.NVarChar, token)
-            .query(`
-                SELECT f.original_name, f.stored_path, sl.expires_at, sl.max_downloads, sl.download_count
-                FROM SharedLinks sl
-                JOIN Files f ON sl.file_id = f.id
-                WHERE sl.token = @token AND sl.is_active = 1
-            `);
+        if (!pool) throw new Error('Database not connected');
+
+        const [result] = await pool.execute(
+            `SELECT f.original_name, f.stored_path, sl.expires_at, sl.max_downloads, sl.download_count
+             FROM SharedLinks sl
+             JOIN Files f ON sl.file_id = f.id
+             WHERE sl.token = ? AND sl.is_active = 1`,
+            [token]
+        );
         
-        if (result.recordset.length === 0) {
+        if (result.length === 0) {
             return res.status(404).send('Ссылка не найдена');
         }
         
-        const share = result.recordset[0];
+        const share = result[0];
         
         if (new Date() > new Date(share.expires_at)) {
             return res.status(410).send('Срок действия ссылки истек');
@@ -341,9 +341,10 @@ app.get('/api/s/:token', async (req, res) => {
             return res.status(410).send('Лимит скачиваний исчерпан');
         }
         
-        await pool.request()
-            .input('token', sql.NVarChar, token)
-            .query('UPDATE SharedLinks SET download_count = download_count + 1 WHERE token = @token');
+        await pool.execute(
+            `UPDATE SharedLinks SET download_count = download_count + 1 WHERE token = ?`,
+            [token]
+        );
         
         res.download(share.stored_path, share.original_name);
     } catch (error) {
@@ -356,22 +357,23 @@ app.get('/api/s/:token', async (req, res) => {
 app.get('/api/profile', authenticateToken, async (req, res) => {
     try {
         const pool = await poolPromise;
-        const result = await pool.request()
-            .input('userId', sql.Int, req.user.userId)
-            .query(`
-                SELECT u.id, u.email, u.full_name, u.storage_used, u.storage_limit, 
-                       u.is_email_confirmed, u.created_at, u.last_login,
-                       r.name as role
-                FROM Users u
-                LEFT JOIN Roles r ON u.role_id = r.id
-                WHERE u.id = @userId
-            `);
+        if (!pool) throw new Error('Database not connected');
+
+        const [result] = await pool.execute(
+            `SELECT u.id, u.email, u.full_name, u.storage_used, u.storage_limit, 
+                    u.is_email_confirmed, u.created_at, u.last_login,
+                    r.name as role
+             FROM Users u
+             LEFT JOIN Roles r ON u.role_id = r.id
+             WHERE u.id = ?`,
+            [req.user.userId]
+        );
         
-        if (result.recordset.length === 0) {
+        if (result.length === 0) {
             return res.status(404).json({ error: 'Пользователь не найден' });
         }
         
-        res.json(result.recordset[0]);
+        res.json(result[0]);
     } catch (error) {
         console.error('Profile error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });

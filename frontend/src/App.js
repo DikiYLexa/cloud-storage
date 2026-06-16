@@ -15,7 +15,7 @@ function App() {
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
     const [message, setMessage] = useState('');
-    const [messageType, setMessageType] = useState('');
+    const [messageType] = useState('');
     const [loading, setLoading] = useState(false);
     const [files, setFiles] = useState([]);
     const [hoveredFile, setHoveredFile] = useState(null);
@@ -152,10 +152,6 @@ function App() {
                 setPendingEmail(email);
                 setShowVerificationDialog(true);
                 setMessage('');
-                if (res.data.dev_code) {
-                    console.log('Код подтверждения:', res.data.dev_code);
-                    alert(`Код подтверждения: ${res.data.dev_code}\nСкопируйте его`);
-                }
             } else {
                 localStorage.setItem('token', res.data.token);
                 setUser(res.data.user);
@@ -363,24 +359,24 @@ function App() {
         }
     };
 
-    const handleEmptyTrash = async () => {
-        const token = localStorage.getItem('token');
-        if (window.confirm('Очистить корзину? Все файлы будут удалены навсегда.')) {
-            try {
-                await axios.delete(`${API_URL}/files/trash/empty`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                
-                await loadTrashFiles();
-                await loadFiles(token);
-                setMessage('Корзина очищена');
-                setTimeout(() => setMessage(''), 3000);
-            } catch (error) {
-                console.error('Empty trash error:', error);
-                setMessage('Ошибка при очистке корзины');
-            }
-        }
-    };
+   // const handleEmptyTrash = async () => {
+//     const token = localStorage.getItem('token');
+//     if (window.confirm('Очистить корзину? Все файлы будут удалены навсегда.')) {
+//         try {
+//             await axios.delete(`${API_URL}/files/trash/empty`, {
+//                 headers: { Authorization: `Bearer ${token}` }
+//             });
+//             
+//             await loadTrashFiles();
+//             await loadFiles(token);
+//             setMessage('Корзина очищена');
+//             setTimeout(() => setMessage(''), 3000);
+//         } catch (error) {
+//             console.error('Empty trash error:', error);
+//             setMessage('Ошибка при очистке корзины');
+//         }
+//     }
+// };
 
     const toggleFileSelection = (fileId) => {
         if (selectedFiles.includes(fileId)) {

@@ -1,16 +1,14 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { poolPromise, sql } = require('../config/db');
+const { poolPromise } = require('../config/db');
 const { sendVerificationEmail } = require('../config/mail');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'b0d5427b16e23f4b032ba6332c6d6b3938a3d2e4c92e959a4fa9a1813a93e5d3';
 
-// Генерация 6-значного кода
 const generateVerificationCode = () => {
     return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Регистрация
 const register = async (req, res) => {
     const { email, password, full_name } = req.body;
 
@@ -20,40 +18,35 @@ const register = async (req, res) => {
 
     try {
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
 
-        const checkUser = await pool.request()
-            .input('email', sql.NVarChar, email)
-            .query('SELECT id, is_email_confirmed FROM Users WHERE email = @email');
+        const [checkUser] = await pool.execute(
+            'SELECT id, is_email_confirmed FROM Users WHERE email = ?',
+            [email]
+        );
 
-        if (checkUser.recordset.length > 0) {
-            const user = checkUser.recordset[0];
+        if (checkUser.length > 0) {
+            const user = checkUser[0];
             if (user.is_email_confirmed) {
                 return res.status(400).json({ error: 'Пользователь с таким email уже существует' });
             } else {
-                await pool.request()
-                    .input('email', sql.NVarChar, email)
-                    .query('DELETE FROM Users WHERE email = @email AND is_email_confirmed = 0');
+                await pool.execute('DELETE FROM Users WHERE email = ? AND is_email_confirmed = 0', [email]);
             }
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         const confirmationCode = generateVerificationCode();
 
-        const result = await pool.request()
-            .input('email', sql.NVarChar, email)
-            .input('password_hash', sql.NVarChar, hashedPassword)
-            .input('full_name', sql.NVarChar, full_name || null)
-            .input('confirmation_code', sql.NVarChar, confirmationCode)
-            .query(`
-                INSERT INTO Users (email, password_hash, full_name, is_email_confirmed, email_confirmation_token, email_confirmation_sent_at)
-                VALUES (@email, @password_hash, @full_name, 0, @confirmation_code, GETDATE());
-                SELECT SCOPE_IDENTITY() AS id, @email AS email, @full_name AS full_name;
-            `);
+        const [result] = await pool.execute(
+            `INSERT INTO Users (email, password_hash, full_name, is_email_confirmed, email_confirmation_token, email_confirmation_sent_at)
+             VALUES (?, ?, ?, 0, ?, NOW())`,
+            [email, hashedPassword, full_name || null, confirmationCode]
+        );
 
         const newUser = {
-            id: result.recordset[0].id,
-            email: result.recordset[0].email,
-            full_name: result.recordset[0].full_name
+            id: result.insertId,
+            email: email,
+            full_name: full_name || null
         };
 
         try {
@@ -76,7 +69,6 @@ const register = async (req, res) => {
     }
 };
 
-// Подтверждение email по коду
 const verifyCode = async (req, res) => {
     const { email, code } = req.body;
     
@@ -90,24 +82,22 @@ const verifyCode = async (req, res) => {
 
     try {
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
 
-        const result = await pool.request()
-            .input('email', sql.NVarChar, email)
-            .input('code', sql.NVarChar, code)
-            .query(`
-                UPDATE Users 
-                SET is_email_confirmed = 1, 
-                    email_confirmed_at = GETDATE(),
-                    email_confirmation_token = NULL
-                WHERE email = @email 
-                AND email_confirmation_token = @code 
-                AND is_email_confirmed = 0;
-                SELECT @@ROWCOUNT AS updated;
-            `);
+        const [result] = await pool.execute(
+            `UPDATE Users 
+             SET is_email_confirmed = 1, 
+                 email_confirmed_at = NOW(),
+                 email_confirmation_token = NULL
+             WHERE email = ? 
+             AND email_confirmation_token = ? 
+             AND is_email_confirmed = 0`,
+            [email, code]
+        );
 
-        console.log('Результат обновления (updated):', result.recordset[0].updated);
+        console.log('Обновлено строк:', result.affectedRows);
 
-        if (result.recordset[0].updated > 0) {
+        if (result.affectedRows > 0) {
             res.json({ success: true, message: 'Email подтверждён!' });
         } else {
             res.status(400).json({ error: 'Неверный код подтверждения' });
@@ -118,7 +108,6 @@ const verifyCode = async (req, res) => {
     }
 };
 
-// Повторная отправка кода
 const resendCode = async (req, res) => {
     const { email } = req.body;
 
@@ -128,24 +117,25 @@ const resendCode = async (req, res) => {
 
     try {
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
 
-        const result = await pool.request()
-            .input('email', sql.NVarChar, email)
-            .query('SELECT id, email, full_name FROM Users WHERE email = @email AND is_email_confirmed = 0');
+        const [user] = await pool.execute(
+            'SELECT id, email, full_name FROM Users WHERE email = ? AND is_email_confirmed = 0',
+            [email]
+        );
 
-        if (result.recordset.length === 0) {
+        if (user.length === 0) {
             return res.status(404).json({ error: 'Пользователь не найден или уже подтверждён' });
         }
 
-        const user = result.recordset[0];
         const newCode = generateVerificationCode();
 
-        await pool.request()
-            .input('code', sql.NVarChar, newCode)
-            .input('email', sql.NVarChar, email)
-            .query('UPDATE Users SET email_confirmation_token = @code, email_confirmation_sent_at = GETDATE() WHERE email = @email');
+        await pool.execute(
+            'UPDATE Users SET email_confirmation_token = ?, email_confirmation_sent_at = NOW() WHERE email = ?',
+            [newCode, email]
+        );
 
-        await sendVerificationEmail(email, newCode, user.full_name || email.split('@')[0]);
+        await sendVerificationEmail(email, newCode, user[0].full_name || email.split('@')[0]);
         console.log('✅ Новый код подтверждения для', email, ':', newCode);
 
         res.json({ message: 'Новый код отправлен', dev_code: newCode });
@@ -156,7 +146,6 @@ const resendCode = async (req, res) => {
     }
 };
 
-// Логин
 const login = async (req, res) => {
     const { email, password } = req.body;
 
@@ -166,22 +155,22 @@ const login = async (req, res) => {
 
     try {
         const pool = await poolPromise;
+        if (!pool) throw new Error('Database not connected');
 
-        const result = await pool.request()
-            .input('email', sql.NVarChar, email)
-            .query(`
-                SELECT u.id, u.email, u.password_hash, u.full_name, u.is_email_confirmed,
-                       r.name as role
-                FROM Users u
-                LEFT JOIN Roles r ON u.role_id = r.id
-                WHERE u.email = @email
-            `);
+        const [result] = await pool.execute(
+            `SELECT u.id, u.email, u.password_hash, u.full_name, u.is_email_confirmed,
+                    r.name as role
+             FROM Users u
+             LEFT JOIN Roles r ON u.role_id = r.id
+             WHERE u.email = ?`,
+            [email]
+        );
 
-        if (result.recordset.length === 0) {
+        if (result.length === 0) {
             return res.status(401).json({ error: 'Неверный email или пароль' });
         }
 
-        const user = result.recordset[0];
+        const user = result[0];
 
         if (!user.is_email_confirmed) {
             return res.status(401).json({ 
@@ -197,9 +186,7 @@ const login = async (req, res) => {
             return res.status(401).json({ error: 'Неверный email или пароль' });
         }
 
-        await pool.request()
-            .input('userId', sql.Int, user.id)
-            .query('UPDATE Users SET last_login = GETDATE() WHERE id = @userId');
+        await pool.execute('UPDATE Users SET last_login = NOW() WHERE id = ?', [user.id]);
 
         const token = jwt.sign(
             { userId: user.id, email: user.email },
@@ -225,26 +212,26 @@ const login = async (req, res) => {
     }
 };
 
-// Получение профиля
 const getProfile = async (req, res) => {
     try {
         const pool = await poolPromise;
-        const result = await pool.request()
-            .input('userId', sql.Int, req.user.userId)
-            .query(`
-                SELECT u.id, u.email, u.full_name, u.storage_used, u.storage_limit, 
-                       u.is_email_confirmed, u.created_at, u.last_login,
-                       r.name as role
-                FROM Users u
-                LEFT JOIN Roles r ON u.role_id = r.id
-                WHERE u.id = @userId
-            `);
+        if (!pool) throw new Error('Database not connected');
+
+        const [result] = await pool.execute(
+            `SELECT u.id, u.email, u.full_name, u.storage_used, u.storage_limit, 
+                    u.is_email_confirmed, u.created_at, u.last_login,
+                    r.name as role
+             FROM Users u
+             LEFT JOIN Roles r ON u.role_id = r.id
+             WHERE u.id = ?`,
+            [req.user.userId]
+        );
         
-        if (result.recordset.length === 0) {
+        if (result.length === 0) {
             return res.status(404).json({ error: 'Пользователь не найден' });
         }
         
-        res.json(result.recordset[0]);
+        res.json(result[0]);
     } catch (error) {
         console.error('Profile error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
