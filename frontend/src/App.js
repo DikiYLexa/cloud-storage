@@ -716,7 +716,7 @@ function App() {
         <div style={dialogStyles.container}>
             <style>{animationStyles}</style>
             <div style={dialogStyles.card}>
-                <h2 style={dialogStyles.title}>📧 Подтверждение email</h2>
+                <h2 style={dialogStyles.title}> Подтверждение email</h2>
                 <p style={dialogStyles.text}>Подтверждение для <strong>{pendingEmail}</strong></p>
                 
                 {/* БЛОК С КОДОМ НА ЭКРАНЕ - ТОЛЬКО ЕСЛИ ПИСЬМО НЕ ОТПРАВИЛОСЬ */}
