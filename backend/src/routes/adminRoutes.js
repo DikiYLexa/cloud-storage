@@ -51,7 +51,7 @@ router.get('/users', checkAdmin, async (req, res) => {
                 u.full_name, 
                 u.storage_used, 
                 u.storage_limit,
-                r.name as role_name,
+                r.name as role ,
                 u.created_at,
                 u.last_login
             FROM Users u
