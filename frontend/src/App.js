@@ -4,7 +4,7 @@ import AdminPanel from './components/AdminPanel';
 
 const API_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5000/api' 
-  : `https://${window.location.hostname}/api`;
+  : '/api';
 
 function App() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
