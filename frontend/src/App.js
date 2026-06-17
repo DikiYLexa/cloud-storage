@@ -291,14 +291,15 @@ function App() {
     };
 
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        setIsLoggedIn(false);
-        setUser(null);
-        setFiles([]);
-        setMessage('Вы вышли из системы');
-        setIsLogin(true);
-        setMenuOpen(false);
-    };
+    localStorage.removeItem('token');
+    setIsLoggedIn(false);
+    setUser(null);
+    setFiles([]);
+    setMessage('Вы вышли из системы');
+    setIsLogin(true);
+    setMenuOpen(false);
+    setTimeout(() => setMessage(''), 2000);
+};
 
     const handleFileInputChange = (event) => {
         if (event.target.files && event.target.files.length > 0) {
