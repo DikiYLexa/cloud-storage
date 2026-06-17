@@ -146,58 +146,81 @@ function App() {
         }
     }, []);
 
-    // ========== ЗАГРУЗКА ФАЙЛОВ (МНОЖЕСТВЕННАЯ) ==========
+   // ========== ЗАГРУЗКА ФАЙЛОВ (МНОЖЕСТВЕННАЯ) ==========
     
-    const uploadFiles = useCallback(async (fileList) => {
-        if (!fileList || fileList.length === 0) return;
-        
-        const token = localStorage.getItem('token');
-        if (!token) {
-            showToast('⚠️ Не авторизован', 'error');
-            return;
-        }
+const uploadFiles = useCallback(async (fileList) => {
+    if (!fileList || fileList.length === 0) return;
+    
+    const token = localStorage.getItem('token');
+    if (!token) {
+        showToast('⚠️ Не авторизован', 'error');
+        return;
+    }
 
-        setUploading(true);
-        setUploadProgress(0);
+    setUploading(true);
+    setUploadProgress(0);
+    
+    let successCount = 0;
+    let failCount = 0;
+    let storageFullCount = 0;
+    const totalFiles = fileList.length;
+    
+    for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const formData = new FormData();
+        formData.append('file', file);
         
-        let successCount = 0;
-        let failCount = 0;
-        const totalFiles = fileList.length;
-        
-        for (let i = 0; i < fileList.length; i++) {
-            const file = fileList[i];
-            const formData = new FormData();
-            formData.append('file', file);
+        try {
+            const response = await axios.post(`${API_URL}/files/upload`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    Authorization: `Bearer ${token}`
+                }
+            });
+            successCount++;
+        } catch (error) {
+            console.error('Upload error for file:', file.name, error);
             
-            try {
-                await axios.post(`${API_URL}/files/upload`, formData, {
-                    headers: {
-                        'Content-Type': 'multipart/form-data',
-                        Authorization: `Bearer ${token}`
-                    }
-                });
-                successCount++;
-            } catch (error) {
-                console.error('Upload error for file:', file.name, error);
+            // Проверяем, это ошибка переполнения хранилища
+            if (error.response?.data?.code === 'STORAGE_LIMIT_EXCEEDED') {
+                storageFullCount++;
+                const details = error.response.data.details;
+                // Показываем сообщение для первого файла, который не загрузился
+                if (storageFullCount === 1) {
+                    showToast(
+                        `❌ Хранилище переполнено!\n📊 Использовано: ${details?.used || '?'} / ${details?.limit || '?'} MB\n💡 ${error.response.data.message || 'Свободного места недостаточно'}`,
+                        'error'
+                    );
+                }
+            } else {
                 failCount++;
             }
-            
-            setUploadProgress(Math.round(((i + 1) / totalFiles) * 100));
         }
         
-        setUploading(false);
-        setUploadProgress(0);
-        
-        await loadFiles(token);
-        
-        if (successCount > 0 && failCount === 0) {
-            showToast(`✅ Загружено ${successCount} файлов`, 'success');
-        } else if (successCount > 0 && failCount > 0) {
-            showToast(`⚠️ Загружено ${successCount}, ошибок ${failCount}`, 'warning');
-        } else {
-            showToast(`❌ Не удалось загрузить файлы`, 'error');
-        }
-    }, [loadFiles, showToast]);
+        setUploadProgress(Math.round(((i + 1) / totalFiles) * 100));
+    }
+    
+    setUploading(false);
+    setUploadProgress(0);
+    
+    await loadFiles(token);
+    
+    // Формируем итоговое сообщение
+    if (successCount > 0 && failCount === 0 && storageFullCount === 0) {
+        showToast(`✅ Загружено ${successCount} файлов`, 'success');
+    } else if (successCount > 0 && (failCount > 0 || storageFullCount > 0)) {
+        let msg = `⚠️ Загружено ${successCount}`;
+        if (failCount > 0) msg += `, ошибок ${failCount}`;
+        if (storageFullCount > 0) msg += `, хранилище переполнено для ${storageFullCount}`;
+        showToast(msg, 'warning');
+    } else if (storageFullCount === totalFiles) {
+        showToast(`❌ Хранилище переполнено! Ни один файл не загружен`, 'error');
+    } else if (failCount === totalFiles) {
+        showToast(`❌ Не удалось загрузить файлы`, 'error');
+    } else {
+        showToast(`❌ Не удалось загрузить файлы`, 'error');
+    }
+}, [loadFiles, showToast]);
 
     // ========== ОСТАЛЬНЫЕ ФУНКЦИИ ==========
     
