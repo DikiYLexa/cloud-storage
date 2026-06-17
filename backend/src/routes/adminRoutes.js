@@ -5,35 +5,35 @@ const { poolPromise } = require('../config/db');
 // ========== MIDDLEWARE ДЛЯ ПРОВЕРКИ АДМИНА ==========
 const checkAdmin = async (req, res, next) => {
     try {
-        console.log('Checking admin for user_id:', req.user.userId);
+        console.log('🔍 Checking admin for user_id:', req.user.userId);
         
         const pool = await poolPromise;
         if (!pool) throw new Error('Database not connected');
         
         const [result] = await pool.execute(
-            `SELECT r.name as role_name 
+            `SELECT r.name as role
              FROM Users u
              JOIN Roles r ON u.role_id = r.id
              WHERE u.id = ?`,
             [req.user.userId]
         );
         
-        console.log('Query result:', result);
+        console.log('📊 Query result:', result);
         
         if (result.length === 0) {
-            console.log('User not found');
+            console.log('❌ User not found');
             return res.status(403).json({ error: 'Пользователь не найден' });
         }
         
-        if (result[0].role_name !== 'admin') {
-            console.log('User is not admin, role:', result[0].role_name);
+        if (result[0].role !== 'admin') {
+            console.log('🚫 User is not admin, role:', result[0].role);
             return res.status(403).json({ error: 'Доступ запрещён. Требуются права администратора.' });
         }
         
-        console.log('Admin access granted');
+        console.log('✅ Admin access granted');
         next();
     } catch (error) {
-        console.error('Admin check error:', error);
+        console.error('❌ Admin check error:', error);
         res.status(500).json({ error: 'Ошибка проверки прав' });
     }
 };
@@ -41,6 +41,8 @@ const checkAdmin = async (req, res, next) => {
 // ========== ПОЛУЧЕНИЕ СПИСКА ПОЛЬЗОВАТЕЛЕЙ ==========
 router.get('/users', checkAdmin, async (req, res) => {
     try {
+        console.log('📋 GET /admin/users - fetching users...');
+        
         const pool = await poolPromise;
         if (!pool) throw new Error('Database not connected');
 
@@ -59,6 +61,8 @@ router.get('/users', checkAdmin, async (req, res) => {
             ORDER BY u.id
         `);
         
+        console.log(`✅ Users found: ${result.length}`);
+        
         const usersWithStats = result.map(user => ({
             id: user.id,
             email: user.email,
@@ -66,14 +70,14 @@ router.get('/users', checkAdmin, async (req, res) => {
             storage_used_mb: (user.storage_used / 1024 / 1024).toFixed(2),
             storage_limit_mb: (user.storage_limit / 1024 / 1024).toFixed(0),
             usage_percent: ((user.storage_used / user.storage_limit) * 100).toFixed(1),
-            role: user.role_name,
+            role: user.role || 'user',  // ← ВАЖНО: role, а не role_name
             created_at: user.created_at,
             last_login: user.last_login || 'Никогда'
         }));
         
         res.json(usersWithStats);
     } catch (error) {
-        console.error('Get users error:', error);
+        console.error('❌ Get users error:', error);
         res.status(500).json({ error: 'Ошибка получения списка пользователей' });
     }
 });
@@ -81,6 +85,8 @@ router.get('/users', checkAdmin, async (req, res) => {
 // ========== ОБЩАЯ СТАТИСТИКА ==========
 router.get('/stats', checkAdmin, async (req, res) => {
     try {
+        console.log('📊 GET /admin/stats - fetching stats...');
+        
         const pool = await poolPromise;
         if (!pool) throw new Error('Database not connected');
 
@@ -128,9 +134,10 @@ router.get('/stats', checkAdmin, async (req, res) => {
             }
         };
         
+        console.log('✅ Stats calculated:', stats);
         res.json(stats);
     } catch (error) {
-        console.error('Get stats error:', error);
+        console.error('❌ Get stats error:', error);
         res.status(500).json({ error: 'Ошибка получения статистики' });
     }
 });
@@ -139,6 +146,8 @@ router.get('/stats', checkAdmin, async (req, res) => {
 router.put('/users/:id/limit', checkAdmin, async (req, res) => {
     const userId = req.params.id;
     const { limit_mb } = req.body;
+    
+    console.log(`📝 PUT /admin/users/${userId}/limit - limit_mb: ${limit_mb}`);
     
     if (!limit_mb || limit_mb < 100) {
         return res.status(400).json({ error: 'Лимит должен быть не менее 100 MB' });
@@ -155,9 +164,10 @@ router.put('/users/:id/limit', checkAdmin, async (req, res) => {
             [limitBytes, userId]
         );
         
+        console.log('✅ Storage limit updated for user:', userId);
         res.json({ message: 'Лимит обновлён', limit_mb: limit_mb });
     } catch (error) {
-        console.error('Update limit error:', error);
+        console.error('❌ Update limit error:', error);
         res.status(500).json({ error: 'Ошибка обновления лимита' });
     }
 });
