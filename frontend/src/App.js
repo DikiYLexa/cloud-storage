@@ -782,7 +782,7 @@ function App() {
     if (isLoggedIn && user) {
         const totalFiles = files.length;
         const totalSize = files.reduce((acc, f) => acc + f.size, 0).toFixed(1);
-        const usedSpace = Math.min(Math.floor((totalSize / 50) * 100), 100);
+        const usedSpace = Math.min(Math.floor((totalSize / 1024) * 100), 100);
 
         return (
             <div style={styles.container}>
