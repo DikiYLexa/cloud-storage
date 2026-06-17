@@ -1,131 +1,189 @@
-const { poolPromise } = require('../config/db');
+import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 
-// ========== ПОЛУЧЕНИЕ СПИСКА ПОЛЬЗОВАТЕЛЕЙ ==========
-const getUsers = async (req, res) => {
-    try {
-        const pool = await poolPromise;
-        if (!pool) throw new Error('Database not connected');
+const API_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5000/api' 
+  : `https://${window.location.hostname}/api`;
 
-        const [result] = await pool.execute(`
-            SELECT 
-                u.id, 
-                u.email, 
-                u.full_name, 
-                u.storage_used, 
-                u.storage_limit,
-                r.name as role,
-                u.created_at,
-                u.last_login
-            FROM Users u
-            LEFT JOIN Roles r ON u.role_id = r.id
-            ORDER BY u.id
-        `);
-        
-        const usersWithStats = result.map(user => ({
-            id: user.id,
-            email: user.email,
-            full_name: user.full_name || '-',
-            storage_used_mb: (user.storage_used / 1024 / 1024).toFixed(2),
-            storage_limit_mb: (user.storage_limit / 1024 / 1024).toFixed(0),
-            usage_percent: ((user.storage_used / user.storage_limit) * 100).toFixed(1),
-            role: user.role,
-            created_at: user.created_at,
-            last_login: user.last_login || 'Никогда'
-        }));
-        
-        res.json(usersWithStats);
-    } catch (error) {
-        console.error('Get users error:', error);
-        res.status(500).json({ error: 'Ошибка получения списка пользователей' });
+const AdminPanel = ({ token, colors }) => {
+    const [users, setUsers] = useState([]);
+    const [stats, setStats] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const loadAdminData = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            console.log('Loading admin data...');
+            console.log('Token:', token);
+            
+            const [usersRes, statsRes] = await Promise.all([
+                axios.get(`${API_URL}/admin/users`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                }),
+                axios.get(`${API_URL}/admin/stats`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+            ]);
+            
+            console.log('Users response:', usersRes.data);
+            console.log('Stats response:', statsRes.data);
+            
+            setUsers(usersRes.data || []);
+            setStats(statsRes.data || null);
+        } catch (error) {
+            console.error('Load admin data error:', error);
+            console.error('Error response:', error.response);
+            setError(error.response?.data?.error || error.message);
+        } finally {
+            setLoading(false);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        loadAdminData();
+    }, [loadAdminData]);
+
+    if (loading) {
+        return <div style={{ textAlign: 'center', padding: '40px', color: colors.textSecondary }}>Загрузка админ-панели...</div>;
     }
-};
 
-// ========== ОБЩАЯ СТАТИСТИКА ==========
-const getStats = async (req, res) => {
-    try {
-        const pool = await poolPromise;
-        if (!pool) throw new Error('Database not connected');
-
-        const [userStats] = await pool.execute(`
-            SELECT 
-                COUNT(*) AS total_users,
-                SUM(storage_used) AS total_storage_used,
-                SUM(storage_limit) AS total_storage_limit,
-                SUM(CASE WHEN last_login IS NOT NULL THEN 1 ELSE 0 END) AS active_users
-            FROM Users
-        `);
-        
-        const [fileStats] = await pool.execute(`
-            SELECT 
-                COUNT(*) AS total_files,
-                SUM(file_size) AS total_files_size
-            FROM Files
-            WHERE is_deleted = 0
-        `);
-        
-        const [trashStats] = await pool.execute(`
-            SELECT 
-                COUNT(*) AS deleted_files,
-                SUM(file_size) AS deleted_size
-            FROM Files
-            WHERE is_deleted = 1
-        `);
-        
-        const stats = {
-            users: {
-                total: userStats[0]?.total_users || 0,
-                active: userStats[0]?.active_users || 0,
-                inactive: (userStats[0]?.total_users || 0) - (userStats[0]?.active_users || 0)
-            },
-            storage: {
-                used_mb: ((userStats[0]?.total_storage_used || 0) / 1024 / 1024).toFixed(2),
-                limit_mb: ((userStats[0]?.total_storage_limit || 0) / 1024 / 1024).toFixed(0),
-                usage_percent: ((userStats[0]?.total_storage_used || 0) / (userStats[0]?.total_storage_limit || 1) * 100).toFixed(1)
-            },
-            files: {
-                total: fileStats[0]?.total_files || 0,
-                total_size_mb: ((fileStats[0]?.total_files_size || 0) / 1024 / 1024).toFixed(2),
-                deleted: trashStats[0]?.deleted_files || 0,
-                deleted_size_mb: ((trashStats[0]?.deleted_size || 0) / 1024 / 1024).toFixed(2)
-            }
-        };
-        
-        res.json(stats);
-    } catch (error) {
-        console.error('Get stats error:', error);
-        res.status(500).json({ error: 'Ошибка получения статистики' });
-    }
-};
-
-// ========== ОБНОВЛЕНИЕ ЛИМИТА ХРАНИЛИЩА ==========
-const updateStorageLimit = async (req, res) => {
-    const userId = req.params.id;
-    const { limit_mb } = req.body;
-    
-    if (!limit_mb || limit_mb < 100) {
-        return res.status(400).json({ error: 'Лимит должен быть не менее 100 MB' });
-    }
-    
-    try {
-        const pool = await poolPromise;
-        if (!pool) throw new Error('Database not connected');
-        
-        const limitBytes = limit_mb * 1024 * 1024;
-        
-        await pool.execute(
-            'UPDATE Users SET storage_limit = ? WHERE id = ?',
-            [limitBytes, userId]
+    if (error) {
+        return (
+            <div style={{ textAlign: 'center', padding: '40px', color: colors.error }}>
+                ❌ Ошибка: {error}
+                <br />
+                <button onClick={loadAdminData} style={{ marginTop: '10px', padding: '8px 20px', background: colors.accent, color: colors.text, border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
+                    Попробовать снова
+                </button>
+            </div>
         );
-        
-        res.json({ message: 'Лимит обновлён', limit_mb: limit_mb });
-    } catch (error) {
-        console.error('Update limit error:', error);
-        res.status(500).json({ error: 'Ошибка обновления лимита' });
     }
+
+    if (!users || users.length === 0) {
+        return (
+            <div style={{ textAlign: 'center', padding: '40px', color: colors.textSecondary }}>
+                📭 Нет пользователей
+            </div>
+        );
+    }
+
+    return (
+        <div style={{
+            background: colors.cardBg,
+            borderRadius: '20px',
+            padding: '25px',
+            marginBottom: '30px',
+            border: `1px solid ${colors.border}`
+        }}>
+            <h2 style={{ marginBottom: '20px', color: colors.accent, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span>👑</span> Админ-панель
+            </h2>
+
+            {stats && (
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: '15px',
+                    marginBottom: '30px'
+                }}>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px' }}>
+                        <div style={{ fontSize: '32px', marginBottom: '5px' }}>💾</div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.storage?.used_mb || 0} MB / {stats.storage?.limit_mb || 0} MB</div>
+                        <div style={{ marginTop: '8px', height: '6px', background: colors.border, borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ width: `${stats.storage?.usage_percent || 0}%`, height: '100%', background: colors.accent, borderRadius: '3px' }} />
+                        </div>
+                        <div style={{ fontSize: '12px', marginTop: '5px' }}>Заполнено {stats.storage?.usage_percent || 0}%</div>
+                    </div>
+
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px' }}>
+                        <div style={{ fontSize: '32px', marginBottom: '5px' }}>👥</div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.users?.total || 0} пользователей</div>
+                        <div style={{ fontSize: '12px', marginTop: '5px' }}>
+                            ✅ Активных: {stats.users?.active || 0}<br />
+                            💤 Неактивных: {stats.users?.inactive || 0}
+                        </div>
+                    </div>
+
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px' }}>
+                        <div style={{ fontSize: '32px', marginBottom: '5px' }}>📁</div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.files?.total || 0} файлов</div>
+                        <div style={{ fontSize: '12px', marginTop: '5px' }}>
+                            🗑️ В корзине: {stats.files?.deleted || 0} ({stats.files?.deleted_size_mb || 0} MB)
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <h3 style={{ marginBottom: '15px' }}>📋 Пользователи ({users.length})</h3>
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                        <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                            <th style={{ padding: '10px', textAlign: 'left' }}>ID</th>
+                            <th style={{ padding: '10px', textAlign: 'left' }}>Email</th>
+                            <th style={{ padding: '10px', textAlign: 'left' }}>Имя</th>
+                            <th style={{ padding: '10px', textAlign: 'left' }}>Использовано</th>
+                            <th style={{ padding: '10px', textAlign: 'left' }}>Лимит (MB)</th>
+                            <th style={{ padding: '10px', textAlign: 'left' }}>Прогресс</th>
+                            <th style={{ padding: '10px', textAlign: 'left' }}>Роль</th>
+                            <th style={{ padding: '10px', textAlign: 'left' }}>Последний вход</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {users.map(user => (
+                            <tr key={user.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
+                                <td style={{ padding: '10px' }}>{user.id}</td>
+                                <td style={{ padding: '10px' }}>{user.email}</td>
+                                <td style={{ padding: '10px' }}>{user.full_name || '-'}</td>
+                                <td style={{ padding: '10px' }}>{user.storage_used_mb} MB</td>
+                                <td style={{ padding: '10px' }}>
+                                    <input
+                                        type="number"
+                                        defaultValue={user.storage_limit_mb}
+                                        onBlur={(e) => {
+                                            const newLimit = parseInt(e.target.value);
+                                            if (newLimit >= 100 && newLimit !== parseFloat(user.storage_limit_mb)) {
+                                                handleUpdateLimit(user.id, newLimit);
+                                            }
+                                        }}
+                                        style={{
+                                            width: '80px',
+                                            padding: '5px',
+                                            borderRadius: '5px',
+                                            border: `1px solid ${colors.border}`,
+                                            background: colors.cardBg,
+                                            color: colors.text
+                                        }}
+                                    />
+                                </td>
+                                <td style={{ padding: '10px', width: '100px' }}>
+                                    <div style={{ height: '6px', background: colors.border, borderRadius: '3px', overflow: 'hidden' }}>
+                                        <div style={{ width: `${Math.min(user.usage_percent, 100)}%`, height: '100%', background: colors.accent, borderRadius: '3px' }} />
+                                    </div>
+                                    <div style={{ fontSize: '10px', marginTop: '3px' }}>{user.usage_percent}%</div>
+                                </td>
+                                <td style={{ padding: '10px' }}>
+                                    <span style={{
+                                        padding: '2px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '11px',
+                                        background: user.role === 'admin' ? colors.accent : 'rgba(255,255,255,0.1)'
+                                    }}>
+                                        {user.role === 'admin' ? 'Админ' : 'Пользователь'}
+                                    </span>
+                                </td>
+                                <td style={{ padding: '10px', fontSize: '11px' }}>
+                                    {user.last_login && user.last_login !== 'Никогда' ? new Date(user.last_login).toLocaleString('ru-RU') : 'Никогда'}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
 };
 
-module.exports = {
-    getUsers,
-    getStats,
-    updateStorageLimit
-};
+export default AdminPanel;
