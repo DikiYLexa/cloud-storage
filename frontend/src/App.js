@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import AdminPanel from './components/AdminPanel';
 
@@ -7,7 +7,6 @@ const API_URL = window.location.hostname === 'localhost'
   : `https://${window.location.hostname}/api`;
 
 function App() {
-    // ========== ВСЕ useState ==========
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [user, setUser] = useState(null);
     const [isLogin, setIsLogin] = useState(true);
@@ -24,6 +23,7 @@ function App() {
     const [searchTerm, setSearchTerm] = useState('');
     const [showWelcome, setShowWelcome] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
     const [menuOpen, setMenuOpen] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
@@ -34,6 +34,8 @@ function App() {
     const [verificationCode, setVerificationCode] = useState('');
     const [pendingEmail, setPendingEmail] = useState('');
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+    const [dragActive, setDragActive] = useState(false);
+    const fileInputRef = useRef(null);
 
     // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
     
@@ -111,8 +113,6 @@ function App() {
         }
     }, [getFileIcon]);
 
-    // ========== useEffect ==========
-    
     useEffect(() => {
         const token = localStorage.getItem('token');
         if (token) {
@@ -123,41 +123,126 @@ function App() {
         return () => clearTimeout(timer);
     }, [checkAuth, loadFiles]);
 
+    // ========== DRAG AND DROP ==========
+    
+    const handleDrag = useCallback((e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.type === 'dragenter' || e.type === 'dragover') {
+            setDragActive(true);
+        } else if (e.type === 'dragleave') {
+            setDragActive(false);
+        }
+    }, []);
+
+    const handleDrop = useCallback((e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
+        
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            const fileList = Array.from(e.dataTransfer.files);
+            uploadFiles(fileList);
+        }
+    }, []);
+
+    // ========== ЗАГРУЗКА ФАЙЛОВ (МНОЖЕСТВЕННАЯ) ==========
+    
+    const uploadFiles = useCallback(async (fileList) => {
+        if (!fileList || fileList.length === 0) return;
+        
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showToast('⚠️ Не авторизован', 'error');
+            return;
+        }
+
+        setUploading(true);
+        setUploadProgress(0);
+        
+        let successCount = 0;
+        let failCount = 0;
+        const totalFiles = fileList.length;
+        
+        for (let i = 0; i < fileList.length; i++) {
+            const file = fileList[i];
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                await axios.post(`${API_URL}/files/upload`, formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data',
+                        Authorization: `Bearer ${token}`
+                    }
+                });
+                successCount++;
+            } catch (error) {
+                console.error('Upload error for file:', file.name, error);
+                failCount++;
+            }
+            
+            setUploadProgress(Math.round(((i + 1) / totalFiles) * 100));
+        }
+        
+        setUploading(false);
+        setUploadProgress(0);
+        
+        await loadFiles(token);
+        
+        if (successCount > 0 && failCount === 0) {
+            showToast(`✅ Загружено ${successCount} файлов`, 'success');
+        } else if (successCount > 0 && failCount > 0) {
+            showToast(`⚠️ Загружено ${successCount}, ошибок ${failCount}`, 'warning');
+        } else {
+            showToast(`❌ Не удалось загрузить файлы`, 'error');
+        }
+    }, [loadFiles, showToast]);
+
     // ========== ОСТАЛЬНЫЕ ФУНКЦИИ ==========
     
     const toggleMenu = () => setMenuOpen(!menuOpen);
 
     const handleRegister = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-        setMessage('');
-        try {
-            const res = await axios.post(`${API_URL}/auth/register`, {
-                email,
-                password,
-                full_name: fullName
-            });
-            if (res.data.needVerification) {
-                setPendingEmail(email);
-                if (res.data.dev_code) {
-                    setVerificationCode(res.data.dev_code);
-                }
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    try {
+        const res = await axios.post(`${API_URL}/auth/register`, {
+            email,
+            password,
+            full_name: fullName
+        });
+        
+        if (res.data.needVerification) {
+            setPendingEmail(email);
+            
+            // Если есть dev_code - значит письмо не отправилось, показываем код
+            if (res.data.dev_code) {
+                setVerificationCode(res.data.dev_code);
+                setMessage('⚠️ Письмо не отправлено, код на экране');
                 setShowVerificationDialog(true);
-                setMessage('');
             } else {
-                localStorage.setItem('token', res.data.token);
-                setUser(res.data.user);
-                setIsLoggedIn(true);
-                setMessage('Регистрация успешна! Добро пожаловать!');
-                setShowWelcome(true);
-                setTimeout(() => setShowWelcome(false), 5000);
+                // Письмо отправлено, код не показываем
+                setVerificationCode('');
+                setMessage('📧 Код подтверждения отправлен на почту!');
+                setShowVerificationDialog(true);
             }
-        } catch (error) {
-            setMessage(error.response?.data?.error || 'Ошибка регистрации');
-        } finally {
-            setLoading(false);
+        } else {
+            localStorage.setItem('token', res.data.token);
+            setUser(res.data.user);
+            setIsLoggedIn(true);
+            setMessage('Регистрация успешна! Добро пожаловать!');
+            setShowWelcome(true);
+            setTimeout(() => setShowWelcome(false), 5000);
         }
-    };
+    } catch (error) {
+        console.error('Registration error:', error);
+        setMessage(error.response?.data?.error || 'Ошибка регистрации');
+    } finally {
+        setLoading(false);
+    }
+};
 
     const handleCreateShareLink = async (fileId, fileName) => {
         const token = localStorage.getItem('token');
@@ -215,43 +300,12 @@ function App() {
         setMenuOpen(false);
     };
 
-    const handleFileUpload = async (event) => {
-        const file = event.target.files[0];
-        if (!file) return;
-        const token = localStorage.getItem('token');
-        const formData = new FormData();
-        formData.append('file', file);
-        setUploading(true);
-        showToast(`🔍 Проверка файла "${file.name}" на вирусы...`, 'info');
-        try {
-            const response = await axios.post(`${API_URL}/files/upload`, formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                    Authorization: `Bearer ${token}`
-                }
-            });
-            if (response.data.virus_check) {
-                const check = response.data.virus_check;
-                if (check.performed) {
-                    showToast(`✅ ${check.result}`, 'success');
-                } else {
-                    showToast(`⚠️ ${check.result}`, 'warning');
-                }
-            } else {
-                showToast(`✅ Файл "${file.name}" успешно загружен!`, 'success');
-            }
-            await loadFiles(token);
-        } catch (error) {
-            if (error.response?.data?.code === 'VIRUS_DETECTED') {
-                showToast(`🦠 ВНИМАНИЕ! ${error.response.data.error}`, 'error');
-            } else if (error.response?.data?.code === 'FORBIDDEN_EXTENSION') {
-                showToast(`🚫 ${error.response.data.error}`, 'error');
-            } else {
-                showToast(`❌ Ошибка при загрузке файла`, 'error');
-            }
-        } finally {
-            setUploading(false);
+    const handleFileInputChange = (event) => {
+        if (event.target.files && event.target.files.length > 0) {
+            const fileList = Array.from(event.target.files);
+            uploadFiles(fileList);
         }
+        event.target.value = '';
     };
 
     const handleDelete = async (fileId) => {
@@ -357,8 +411,7 @@ function App() {
             await loadFiles(token);
             setSelectedFiles([]);
             setSelectAll(false);
-            setMessage(`Восстановлено ${selectedFiles.length} файлов`);
-            setTimeout(() => setMessage(''), 3000);
+            showToast(`✅ Восстановлено ${selectedFiles.length} файлов`, 'success');
         } catch (error) {
             setMessage('Ошибка при восстановлении');
         }
@@ -381,8 +434,7 @@ function App() {
                 await loadFiles(token);
                 setSelectedFiles([]);
                 setSelectAll(false);
-                setMessage(`Удалено ${selectedFiles.length} файлов`);
-                setTimeout(() => setMessage(''), 3000);
+                showToast(`🗑️ Удалено ${selectedFiles.length} файлов`, 'error');
             } catch (error) {
                 setMessage('Ошибка при удалении');
             }
@@ -506,6 +558,7 @@ function App() {
         searchInput: { flex: 1, padding: '12px 20px', backgroundColor: colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '25px', color: colors.text, fontSize: '14px', outline: 'none' },
         uploadCard: { background: colors.cardBg, borderRadius: '20px', padding: '30px', marginBottom: '40px', backdropFilter: 'blur(10px)', border: `1px solid ${colors.border}`, textAlign: 'center' },
         uploadArea: { border: `2px dashed ${colors.accent}`, borderRadius: '15px', padding: '40px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.3s ease', backgroundColor: 'rgba(233,69,96,0.05)' },
+        uploadAreaDragActive: { border: `2px solid ${colors.accentLight}`, borderRadius: '15px', padding: '40px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.3s ease', backgroundColor: 'rgba(233,69,96,0.15)' },
         fileList: { background: colors.cardBg, borderRadius: '20px', overflow: 'hidden', backdropFilter: 'blur(10px)', border: `1px solid ${colors.border}` },
         fileHeader: { display: 'grid', gridTemplateColumns: '3fr 1fr 1fr 1fr 80px', padding: '15px 20px', backgroundColor: 'rgba(233,69,96,0.1)', fontWeight: 'bold', borderBottom: `1px solid ${colors.border}`, fontSize: '14px' },
         sortHeader: { cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px', transition: 'color 0.3s ease' },
@@ -519,7 +572,9 @@ function App() {
         toastSuccess: { backgroundColor: '#4ecdc4' },
         toastError: { backgroundColor: '#e94560' },
         toastWarning: { backgroundColor: '#ffa500' },
-        toastInfo: { backgroundColor: '#3498db' }
+        toastInfo: { backgroundColor: '#3498db' },
+        uploadProgressBar: { width: '100%', height: '6px', backgroundColor: colors.border, borderRadius: '3px', overflow: 'hidden', marginTop: '10px' },
+        uploadProgressFill: { height: '100%', background: `linear-gradient(90deg, ${colors.accent}, ${colors.accentLight})`, borderRadius: '3px', transition: 'width 0.3s ease' }
     };
 
     const animationStyles = `
@@ -557,7 +612,6 @@ function App() {
             .uploadArea div:first-child { font-size: 36px !important; }
             .uploadArea h3 { font-size: 14px !important; }
             .main { padding: 10px !important; }
-            /* Мобильные кнопки корзины - теперь в колонку */
             .trash-header { flex-direction: column !important; align-items: stretch !important; }
             .trash-actions { flex-direction: column !important; width: 100% !important; }
             .trash-actions button { width: 100% !important; justify-content: center !important; margin: 2px 0 !important; }
@@ -626,54 +680,102 @@ function App() {
     // ========== ДИАЛОГ ПОДТВЕРЖДЕНИЯ ==========
     
     if (showVerificationDialog) {
-        const dialogStyles = {
-            container: { minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: `linear-gradient(135deg, ${colors.dark} 0%, ${colors.darker} 100%)`, fontFamily: "'Poppins', 'Segoe UI', sans-serif" },
-            card: { background: colors.cardBg, borderRadius: '20px', backdropFilter: 'blur(10px)', border: `1px solid ${colors.border}`, width: '100%', maxWidth: '450px', padding: '40px', textAlign: 'center' },
-            text: { color: colors.text, marginBottom: '20px', fontSize: '14px' },
-            title: { fontSize: '28px', marginBottom: '20px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' },
-            codeBlock: { background: 'rgba(233,69,96,0.15)', padding: '20px', borderRadius: '12px', marginBottom: '20px', border: `1px solid ${colors.accent}` },
-            codeText: { fontSize: '48px', fontWeight: 'bold', letterSpacing: '8px', color: colors.accent, margin: '10px 0', fontFamily: 'monospace' },
-            input: { width: '100%', padding: '14px', marginBottom: '15px', backgroundColor: 'rgba(255,255,255,0.05)', border: `1px solid ${colors.border}`, borderRadius: '10px', color: colors.text, fontSize: '16px', boxSizing: 'border-box' },
-            button: { width: '100%', padding: '14px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, border: 'none', borderRadius: '10px', color: colors.text, fontSize: '16px', fontWeight: '600', cursor: 'pointer', marginBottom: '10px' },
-            resendButton: { width: '100%', padding: '12px', background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: '10px', color: colors.textSecondary, fontSize: '14px', cursor: 'pointer' },
-            message: { marginTop: '15px', padding: '10px', borderRadius: '10px', backgroundColor: colors.accent, color: colors.text, fontSize: '14px' }
-        };
+    const dialogStyles = {
+        container: { minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: `linear-gradient(135deg, ${colors.dark} 0%, ${colors.darker} 100%)`, fontFamily: "'Poppins', 'Segoe UI', sans-serif" },
+        card: { background: colors.cardBg, borderRadius: '20px', backdropFilter: 'blur(10px)', border: `1px solid ${colors.border}`, width: '100%', maxWidth: '450px', padding: '40px', textAlign: 'center' },
+        text: { color: colors.text, marginBottom: '20px', fontSize: '14px' },
+        title: { fontSize: '28px', marginBottom: '20px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' },
+        codeBlock: { background: 'rgba(233,69,96,0.15)', padding: '20px', borderRadius: '12px', marginBottom: '20px', border: `1px solid ${colors.accent}` },
+        codeText: { fontSize: '48px', fontWeight: 'bold', letterSpacing: '8px', color: colors.accent, margin: '10px 0', fontFamily: 'monospace' },
+        input: { width: '100%', padding: '14px', marginBottom: '15px', backgroundColor: 'rgba(255,255,255,0.05)', border: `1px solid ${colors.border}`, borderRadius: '10px', color: colors.text, fontSize: '16px', boxSizing: 'border-box' },
+        button: { width: '100%', padding: '14px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, border: 'none', borderRadius: '10px', color: colors.text, fontSize: '16px', fontWeight: '600', cursor: 'pointer', marginBottom: '10px' },
+        resendButton: { width: '100%', padding: '12px', background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: '10px', color: colors.textSecondary, fontSize: '14px', cursor: 'pointer' },
+        message: { marginTop: '15px', padding: '10px', borderRadius: '10px', backgroundColor: colors.accent, color: colors.text, fontSize: '14px' }
+    };
 
-        const handleResendCode = async () => {
-            setLoading(true);
-            try {
-                const res = await axios.post(`${API_URL}/auth/resend-code`, { email: pendingEmail });
-                setMessage('Новый код отправлен!');
-                if (res.data.dev_code) setVerificationCode(res.data.dev_code);
-            } catch (error) {
-                setMessage(error.response?.data?.error || 'Ошибка отправки кода');
-            } finally {
-                setLoading(false);
+    const handleResendCode = async () => {
+        setLoading(true);
+        try {
+            const res = await axios.post(`${API_URL}/auth/resend-code`, { email: pendingEmail });
+            setMessage(res.data.message || 'Новый код отправлен!');
+            if (res.data.dev_code) {
+                setVerificationCode(res.data.dev_code);
+                setMessage('⚠️ Письмо не отправлено, код на экране');
+            } else {
+                setVerificationCode('');
+                setMessage('📧 Новый код отправлен на почту!');
             }
-        };
+        } catch (error) {
+            setMessage(error.response?.data?.error || 'Ошибка отправки кода');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-        return (
-            <div style={dialogStyles.container}>
-                <style>{animationStyles}</style>
-                <div style={dialogStyles.card}>
-                    <h2 style={dialogStyles.title}>📧 Подтверждение email</h2>
-                    <p style={dialogStyles.text}>Подтверждение для <strong>{pendingEmail}</strong></p>
-                    {verificationCode && (
-                        <div style={dialogStyles.codeBlock}>
-                            <p style={{ margin: 0, fontSize: '14px', opacity: 0.8 }}>Ваш код подтверждения:</p>
-                            <p style={dialogStyles.codeText}>{verificationCode}</p>
-                            <p style={{ margin: 0, fontSize: '12px', opacity: 0.6 }}>Введите код ниже</p>
-                        </div>
-                    )}
-                    <input type="text" maxLength="6" placeholder="Введите 6-значный код" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))} style={dialogStyles.input} />
-                    <button onClick={handleVerifyCode} style={dialogStyles.button}>{loading ? 'Проверка...' : 'Подтвердить email'}</button>
-                    <button onClick={handleResendCode} style={dialogStyles.resendButton} disabled={loading}>Отправить код повторно</button>
-                    <button onClick={() => { setShowVerificationDialog(false); setMessage(''); setVerificationCode(''); }} style={{ ...dialogStyles.resendButton, marginTop: '10px' }}>Назад</button>
-                    {message && !message.includes('подтверждён') && <div style={dialogStyles.message}>{message}</div>}
-                </div>
+    return (
+        <div style={dialogStyles.container}>
+            <style>{animationStyles}</style>
+            <div style={dialogStyles.card}>
+                <h2 style={dialogStyles.title}>📧 Подтверждение email</h2>
+                <p style={dialogStyles.text}>Подтверждение для <strong>{pendingEmail}</strong></p>
+                
+                {/* БЛОК С КОДОМ НА ЭКРАНЕ - ТОЛЬКО ЕСЛИ ПИСЬМО НЕ ОТПРАВИЛОСЬ */}
+                {verificationCode && (
+                    <div style={dialogStyles.codeBlock}>
+                        <p style={{ margin: 0, fontSize: '14px', opacity: 0.8, color: colors.error }}>
+                            ⚠️ Не удалось отправить письмо
+                        </p>
+                        <p style={dialogStyles.codeText}>{verificationCode}</p>
+                        <p style={{ margin: 0, fontSize: '12px', opacity: 0.6 }}>Введите код вручную</p>
+                    </div>
+                )}
+                
+                {!verificationCode && (
+                    <div style={{ 
+                        background: 'rgba(78, 205, 196, 0.15)', 
+                        padding: '15px', 
+                        borderRadius: '10px', 
+                        marginBottom: '20px',
+                        border: '1px solid #4ecdc4'
+                    }}>
+                        <p style={{ margin: 0, color: colors.text }}>
+                            📧 Код подтверждения отправлен на вашу почту
+                        </p>
+                        <p style={{ margin: '5px 0 0 0', fontSize: '12px', opacity: 0.7 }}>
+                            Проверьте папку "Спам", если письмо не пришло
+                        </p>
+                    </div>
+                )}
+                
+                <input
+                    type="text"
+                    maxLength="6"
+                    placeholder="Введите 6-значный код"
+                    value={verificationCode}
+                    onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                    style={dialogStyles.input}
+                />
+                <button onClick={handleVerifyCode} style={dialogStyles.button}>
+                    {loading ? 'Проверка...' : 'Подтвердить email'}
+                </button>
+                <button onClick={handleResendCode} style={dialogStyles.resendButton} disabled={loading}>
+                    Отправить код повторно
+                </button>
+                <button 
+                    onClick={() => {
+                        setShowVerificationDialog(false);
+                        setMessage('');
+                        setVerificationCode('');
+                    }} 
+                    style={{ ...dialogStyles.resendButton, marginTop: '10px' }}
+                >
+                    Назад
+                </button>
+                {message && !message.includes('подтверждён') && <div style={dialogStyles.message}>{message}</div>}
             </div>
-        );
-    }
+        </div>
+    );
+}
     
     // ========== ОСНОВНОЙ РЕНДЕР (АВТОРИЗОВАН) ==========
     
@@ -743,7 +845,7 @@ function App() {
                         </div>
                         <div style={{ background: colors.cardBg, borderRadius: '16px', padding: '20px', border: `1px solid ${colors.border}`, backdropFilter: 'blur(10px)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}><span style={{ fontSize: '32px' }}>⚡</span><h3 style={{ margin: 0, fontSize: '18px' }}>Быстрый доступ</h3></div>
-                            <button onClick={() => { if (showTrash) { setShowTrash(false); setTimeout(() => { const fileInput = document.getElementById('fileInput'); if (fileInput) fileInput.click(); }, 100); } else { const fileInput = document.getElementById('fileInput'); if (fileInput) fileInput.click(); } }} style={{ width: '100%', padding: '12px', marginBottom: '10px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, border: 'none', borderRadius: '12px', color: colors.text, fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>⬆️ Загрузить файл</button>
+                            <button onClick={() => { if (showTrash) { setShowTrash(false); setTimeout(() => { if (fileInputRef.current) fileInputRef.current.click(); }, 100); } else { if (fileInputRef.current) fileInputRef.current.click(); } }} style={{ width: '100%', padding: '12px', marginBottom: '10px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, border: 'none', borderRadius: '12px', color: colors.text, fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>⬆️ Загрузить файл</button>
                             <button onClick={() => { if (showTrash) { setShowTrash(false); const token = localStorage.getItem('token'); if (token) loadFiles(token); } else { loadTrashFiles(); setShowTrash(true); } }} style={{ width: '100%', padding: '12px', background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: '12px', color: colors.text, cursor: 'pointer', fontSize: '14px' }}>🗑️ {showTrash ? 'Вернуться к файлам' : 'Перейти в корзину'}</button>
                         </div>
                         <div style={{ background: colors.cardBg, borderRadius: '16px', padding: '20px', border: `1px solid ${colors.border}`, backdropFilter: 'blur(10px)' }}>
@@ -759,13 +861,45 @@ function App() {
                     </div>
 
                     {!showTrash && (
-                        <div style={styles.uploadCard}>
-                            <div className="upload-area" style={styles.uploadArea}>
+                        <div 
+                            style={styles.uploadCard}
+                            onDragEnter={handleDrag}
+                            onDragLeave={handleDrag}
+                            onDragOver={handleDrag}
+                            onDrop={handleDrop}
+                        >
+                            <div 
+                                className="upload-area" 
+                                style={dragActive ? styles.uploadAreaDragActive : styles.uploadArea}
+                            >
                                 <div style={{ fontSize: '56px', marginBottom: '15px' }}>⬆️</div>
                                 <h3>Загрузить файлы до (100 мб)</h3>
-                                <p style={{ color: colors.textSecondary }}>Перетащите файлы сюда или нажмите для выбора</p>
-                                <input type="file" style={{ display: 'none' }} id="fileInput" onChange={handleFileUpload} />
-                                <button onClick={() => document.getElementById('fileInput').click()} style={{ padding: '12px 32px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, color: colors.text, border: 'none', borderRadius: '25px', cursor: 'pointer' }} disabled={uploading}>{uploading ? 'Загрузка...' : 'Выбрать файлы'}</button>
+                                <p style={{ color: colors.textSecondary }}>
+                                    {dragActive ? '📥 Отпустите файлы для загрузки' : 'Перетащите файлы сюда или нажмите для выбора'}
+                                </p>
+                                <p style={{ color: colors.textSecondary, fontSize: '12px' }}>
+                                    Можно выбрать несколько файлов одновременно
+                                </p>
+                                <input 
+                                    type="file" 
+                                    style={{ display: 'none' }} 
+                                    id="fileInput" 
+                                    ref={fileInputRef}
+                                    onChange={handleFileInputChange}
+                                    multiple 
+                                />
+                                <button 
+                                    onClick={() => fileInputRef.current?.click()} 
+                                    style={{ padding: '12px 32px', background: `linear-gradient(135deg, ${colors.accent}, ${colors.accentLight})`, color: colors.text, border: 'none', borderRadius: '25px', cursor: 'pointer' }} 
+                                    disabled={uploading}
+                                >
+                                    {uploading ? 'Загрузка...' : 'Выбрать файлы'}
+                                </button>
+                                {uploading && (
+                                    <div style={styles.uploadProgressBar}>
+                                        <div style={{ ...styles.uploadProgressFill, width: `${uploadProgress}%` }} />
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
