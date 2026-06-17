@@ -143,12 +143,19 @@ const resendCode = async (req, res) => {
             [newCode, email]
         );
 
-        // Отправляем письмо в фоне
-        sendVerificationEmail(email, newCode, user[0].full_name || email.split('@')[0])
-            .then(() => console.log('✅ Новый код отправлен на', email))
-            .catch(err => console.error('❌ Ошибка отправки кода:', err.message));
+        // Пытаемся отправить письмо
+        const emailResult = await sendVerificationEmail(email, newCode, user[0].full_name || email.split('@')[0]);
 
-        res.json({ message: 'Новый код отправлен на почту' });
+        let dev_code = null;
+        let message = 'Новый код отправлен на почту!';
+
+        if (!emailResult.success) {
+            dev_code = newCode;
+            message = 'Не удалось отправить письмо. Код на экране.';
+            console.log('⚠️ Письмо не отправлено, код на экране:', newCode);
+        }
+
+        res.json({ message, dev_code });
 
     } catch (error) {
         console.error('Resend error:', error);

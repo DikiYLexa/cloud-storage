@@ -70,7 +70,6 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
             return res.status(400).json({ error: 'Файл не загружен' });
         }
 
-        // Быстрая проверка расширения
         const extCheck = quickExtensionCheck(req.file.originalname);
         if (extCheck.isDangerous) {
             fs.unlinkSync(req.file.path);
@@ -93,11 +92,15 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
             [req.user.userId, originalName, req.file.filename, req.file.path, req.file.size, req.file.mimetype]
         );
 
+        // ПРАВИЛЬНЫЙ РАСЧЁТ storage_used
+        const [sumResult] = await pool.execute(
+            `SELECT IFNULL(SUM(file_size), 0) AS total FROM Files WHERE user_id = ? AND is_deleted = 0`,
+            [req.user.userId]
+        );
+        
         await pool.execute(
-            `UPDATE Users 
-             SET storage_used = (SELECT IFNULL(SUM(file_size), 0) FROM Files WHERE user_id = ? AND is_deleted = 0)
-             WHERE id = ?`,
-            [req.user.userId, req.user.userId]
+            `UPDATE Users SET storage_used = ? WHERE id = ?`,
+            [sumResult[0].total, req.user.userId]
         );
 
         res.json({
