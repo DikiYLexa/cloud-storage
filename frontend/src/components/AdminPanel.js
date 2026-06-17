@@ -1,17 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5000/api' 
+  : `https://${window.location.hostname}/api`;
 
 const AdminPanel = ({ token, colors }) => {
     const [users, setUsers] = useState([]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
-    // Оборачиваем loadAdminData в useCallback
     const loadAdminData = useCallback(async () => {
         setLoading(true);
+        setError(null);
         try {
+            console.log('Loading admin data...');
+            console.log('Token:', token);
+            
             const [usersRes, statsRes] = await Promise.all([
                 axios.get(`${API_URL}/admin/users`, {
                     headers: { Authorization: `Bearer ${token}` }
@@ -20,34 +26,62 @@ const AdminPanel = ({ token, colors }) => {
                     headers: { Authorization: `Bearer ${token}` }
                 })
             ]);
-            setUsers(usersRes.data);
-            setStats(statsRes.data);
+            
+            console.log('Users response:', usersRes.data);
+            console.log('Stats response:', statsRes.data);
+            
+            setUsers(usersRes.data || []);
+            setStats(statsRes.data || null);
         } catch (error) {
             console.error('Load admin data error:', error);
+            console.error('Error response:', error.response);
+            setError(error.response?.data?.error || error.message);
         } finally {
             setLoading(false);
         }
-    }, [token]); // token как зависимость
+    }, [token]);
 
-    // useEffect теперь использует loadAdminData
-    useEffect(() => {
-        loadAdminData();
-    }, [loadAdminData]);
-
-    const handleUpdateLimit = async (userId, newLimitMb) => {
+    // ========== ДОБАВЛЯЕМ ФУНКЦИЮ ДЛЯ ОБНОВЛЕНИЯ ЛИМИТА ==========
+    const handleUpdateLimit = useCallback(async (userId, newLimitMb) => {
         try {
             await axios.put(`${API_URL}/admin/users/${userId}/limit`,
                 { limit_mb: newLimitMb },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            loadAdminData();
+            // Обновляем данные после изменения
+            await loadAdminData();
         } catch (error) {
             console.error('Update limit error:', error);
+            alert('Ошибка при обновлении лимита');
         }
-    };
+    }, [token, loadAdminData]);
+
+    useEffect(() => {
+        loadAdminData();
+    }, [loadAdminData]);
 
     if (loading) {
-        return <div style={{ textAlign: 'center', padding: '40px' }}>Загрузка админ-панели...</div>;
+        return <div style={{ textAlign: 'center', padding: '40px', color: colors.textSecondary }}>Загрузка админ-панели...</div>;
+    }
+
+    if (error) {
+        return (
+            <div style={{ textAlign: 'center', padding: '40px', color: colors.error }}>
+                ❌ Ошибка: {error}
+                <br />
+                <button onClick={loadAdminData} style={{ marginTop: '10px', padding: '8px 20px', background: colors.accent, color: colors.text, border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
+                    Попробовать снова
+                </button>
+            </div>
+        );
+    }
+
+    if (!users || users.length === 0) {
+        return (
+            <div style={{ textAlign: 'center', padding: '40px', color: colors.textSecondary }}>
+                📭 Нет пользователей
+            </div>
+        );
     }
 
     return (
@@ -62,44 +96,42 @@ const AdminPanel = ({ token, colors }) => {
                 <span>👑</span> Админ-панель
             </h2>
 
-            {/* Статистика */}
             {stats && (
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
                     gap: '15px',
                     marginBottom: '30px'
                 }}>
                     <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px' }}>
                         <div style={{ fontSize: '32px', marginBottom: '5px' }}>💾</div>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.storage.used_mb} MB / {stats.storage.limit_mb} MB</div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.storage?.used_mb || 0} MB / {stats.storage?.limit_mb || 0} MB</div>
                         <div style={{ marginTop: '8px', height: '6px', background: colors.border, borderRadius: '3px', overflow: 'hidden' }}>
-                            <div style={{ width: `${stats.storage.usage_percent}%`, height: '100%', background: colors.accent, borderRadius: '3px' }} />
+                            <div style={{ width: `${stats.storage?.usage_percent || 0}%`, height: '100%', background: colors.accent, borderRadius: '3px' }} />
                         </div>
-                        <div style={{ fontSize: '12px', marginTop: '5px' }}>Заполнено {stats.storage.usage_percent}%</div>
+                        <div style={{ fontSize: '12px', marginTop: '5px' }}>Заполнено {stats.storage?.usage_percent || 0}%</div>
                     </div>
 
                     <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px' }}>
                         <div style={{ fontSize: '32px', marginBottom: '5px' }}>👥</div>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.users.total} пользователей</div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.users?.total || 0} пользователей</div>
                         <div style={{ fontSize: '12px', marginTop: '5px' }}>
-                            ✅ Активных: {stats.users.active}<br />
-                            💤 Неактивных: {stats.users.inactive}
+                            ✅ Активных: {stats.users?.active || 0}<br />
+                            💤 Неактивных: {stats.users?.inactive || 0}
                         </div>
                     </div>
 
                     <div style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px' }}>
                         <div style={{ fontSize: '32px', marginBottom: '5px' }}>📁</div>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.files.total} файлов</div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.files?.total || 0} файлов</div>
                         <div style={{ fontSize: '12px', marginTop: '5px' }}>
-                            🗑️ В корзине: {stats.files.deleted} ({stats.files.deleted_size_mb} MB)
+                            🗑️ В корзине: {stats.files?.deleted || 0} ({stats.files?.deleted_size_mb || 0} MB)
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Таблица пользователей */}
-            <h3 style={{ marginBottom: '15px' }}>📋 Пользователи</h3>
+            <h3 style={{ marginBottom: '15px' }}>📋 Пользователи ({users.length})</h3>
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                     <thead>
