@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS Users (
     full_name VARCHAR(255),
     role_id INT DEFAULT 1,
     storage_used BIGINT DEFAULT 0,
-    storage_limit BIGINT DEFAULT 52428800,
+    storage_limit BIGINT DEFAULT 1073741824,  
     is_email_confirmed BOOLEAN DEFAULT FALSE,
     email_confirmation_token VARCHAR(10),
     email_confirmation_sent_at DATETIME,

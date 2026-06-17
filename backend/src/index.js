@@ -78,7 +78,30 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
 
         const pool = await poolPromise;
         if (!pool) throw new Error('Database not connected');
-        
+
+        // ========== ПРОВЕРКА ЛИМИТА ХРАНИЛИЩА ==========
+        const [userResult] = await pool.execute(
+            `SELECT storage_used, storage_limit FROM Users WHERE id = ?`,
+            [req.user.userId]
+        );
+
+        if (userResult.length === 0) {
+            fs.unlinkSync(req.file.path);
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+
+        const user = userResult[0];
+        const newTotalSize = user.storage_used + req.file.size;
+
+        if (newTotalSize > user.storage_limit) {
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({ 
+                error: `Превышен лимит хранилища! Доступно: ${((user.storage_limit - user.storage_used) / 1024 / 1024).toFixed(2)} MB`,
+                code: 'STORAGE_LIMIT_EXCEEDED'
+            });
+        }
+        // ========== КОНЕЦ ПРОВЕРКИ ==========
+
         let originalName = req.file.originalname;
         try {
             originalName = iconv.decode(Buffer.from(req.file.originalname, 'binary'), 'utf-8');
@@ -92,7 +115,7 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
             [req.user.userId, originalName, req.file.filename, req.file.path, req.file.size, req.file.mimetype]
         );
 
-        // ПРАВИЛЬНЫЙ РАСЧЁТ storage_used
+        // Обновляем storage_used
         const [sumResult] = await pool.execute(
             `SELECT IFNULL(SUM(file_size), 0) AS total FROM Files WHERE user_id = ? AND is_deleted = 0`,
             [req.user.userId]
