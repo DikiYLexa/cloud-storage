@@ -8,7 +8,7 @@ const checkAdmin = async (req, res, next) => {
         console.log('🔍 Checking admin for user_id:', req.user.userId);
         
         const pool = await poolPromise;
-        if (!pool) throw new Error('Database not connected');
+        if (!pool) throw new         Error('Database not connected');
         
         const [result] = await pool.execute(
             `SELECT r.name as role
