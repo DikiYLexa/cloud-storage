@@ -49,26 +49,17 @@ const register = async (req, res) => {
             full_name: full_name || null
         };
 
-        // Отправляем письмо и ждём результат
-        const emailResult = await sendVerificationEmail(email, confirmationCode, full_name || email.split('@')[0]);
+        // ========== ОТПРАВКА ПИСЬМА ОТКЛЮЧЕНА ==========
+        // Для ускорения регистрации письмо не отправляется.
+        // Код подтверждения всегда показывается на экране.
+        console.log('✅ Регистрация успешна. Код подтверждения для', email, ':', confirmationCode);
 
-        let dev_code = null;
-        let message = 'Код подтверждения отправлен на почту!';
-
-        if (!emailResult.success) {
-            // Если письмо не отправилось - показываем код на экране
-            dev_code = confirmationCode;
-            message = 'Не удалось отправить письмо. Код подтверждения показан на экране.';
-            console.log('⚠️ Письмо не отправлено, код на экране:', confirmationCode);
-        } else {
-            console.log('✅ Письмо отправлено на', email);
-        }
-
+        // Всегда возвращаем код на экран
         res.status(201).json({
-            message: message,
+            message: 'Регистрация успешна! Код подтверждения показан на экране.',
             user: newUser,
             needVerification: true,
-            dev_code: dev_code  // Только если письмо не отправилось
+            dev_code: confirmationCode  // Всегда передаём код
         });
 
     } catch (error) {
